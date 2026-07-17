@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F5F7FA;
+  --foreground: #171717;
+  --primary: #031050;
+  --primary-light: #1a2a6b;
+  --accent-available: #FFFFFF;
+  --accent-unavailable: #FFD700;
+  --border-color: #E5E7EB;
+  --card-bg: #FFFFFF;
+  --text-muted: #6B7280;
+  --danger: #EF4444;
+  --success: #10B981;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+input:focus, select:focus, textarea:focus, button:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}

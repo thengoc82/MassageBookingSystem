@@ -1,0 +1,11 @@
+# Agent / editor harness config (not part of the app)
+.obsidian/
+.agents/
+skills-lock.json
+.DS_Store
+
+# Secrets (defense in depth; sub-project gitignores also exclude these)
+**/.env
+**/.env.local
+
+# Python / Node build artifacts are ignored per sub-project .gitignore

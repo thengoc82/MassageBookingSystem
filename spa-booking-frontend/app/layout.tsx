@@ -1,0 +1,52 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { Inter } from "next/font/google";
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+
+export const metadata: Metadata = {
+  title: "AI Massage Booking",
+  description: "Smart booking system for massage appointments",
+};
+
+function NavBar() {
+  return (
+    <>
+      <nav className="bg-[#031050]">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+                <Link href="/" className="text-2xl font-bold text-white">
+                Massage Booking App
+              </Link>
+              <div className="flex gap-6">
+                <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
+                <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
+              </div>
+          </div>
+        </div>
+      </nav>
+      <div className="h-0.5 bg-gradient-to-r from-[#1E3A5F] via-[#5B7FAF] to-[#1E3A5F]" />
+    </>
+  );
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en">
+      <body className={`${inter.variable} font-sans`}>
+        <NavBar />
+        {children}
+        <footer className="border-t border-gray-200 bg-gray-50">
+          <div className="container mx-auto px-4 py-8 text-center text-gray-600">
+            <p>&copy; 2026 Massage Booking App. All rights reserved.</p>
+          </div>
+        </footer>
+      </body>
+    </html>
+  );
+}
