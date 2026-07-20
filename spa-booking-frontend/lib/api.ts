@@ -14,6 +14,16 @@ async function handleResponse(r: Response) {
   return data;
 }
 
+export async function login(data: any) {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const result = await handleResponse(response);
+  return result;
+}
+
 export const api = {
   shops: {
     getAll: () => fetch(`${API_BASE_URL}/shops`).then(handleResponse),

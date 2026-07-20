@@ -3,8 +3,9 @@ from app.blueprints.admin import admin_bp
 from app.utils.decorators import role_required
 from app.models.therapist import Therapist
 from app.models.shop import Shop
+from app.models.user import User
 from app.extensions import db
-from app.utils import success_response
+from app.utils import success_response, paginated_response
 from app.utils.errors import ResourceNotFound, ValidationError
 
 @admin_bp.route('/shops/<int:shop_id>/therapists', methods=['GET'])
@@ -48,11 +49,19 @@ def create_therapist(shop_id):
     if data.get('gender') not in ['Male', 'Female']:
         raise ValidationError('gender must be Male or Female')
     
+    if not data.get('username'):
+        raise ValidationError('username is required')
+    
+    if not data.get('password'):
+        raise ValidationError('password is required')
+    
     therapist = Therapist(
         shop_id=shop_id,
         name=data['name'],
         gender=data['gender'],
-        phone_number=data.get('phoneNumber')
+        phone_number=data.get('phoneNumber'),
+        username=data['username'],
+        password=data['password']
     )
     
     db.session.add(therapist)
