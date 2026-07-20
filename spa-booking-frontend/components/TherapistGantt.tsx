@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
 import type { TimeSlot, TherapistInfo } from '@/types';
 
@@ -35,6 +35,8 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; booking: BookingDetail } | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +76,40 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     return () => { cancelled = true; };
   }, [shopId, date, duration, numberOfPeople, startTime, gender]);
 
+  const getBookingForSlot = useCallback((therapistId: number, slot: TimeSlot): BookingDetail | null => {
+    const details = bookingDetails[therapistId];
+    if (!details) return null;
+    const slotStart = timeToMin(slot.startTime);
+    const slotEnd = slotStart + duration;
+    for (const b of details) {
+      const bStart = timeToMin(b.startTime);
+      const bEnd = timeToMin(b.endTime);
+      if (slotStart < bEnd && slotEnd > bStart) return b;
+    }
+    return null;
+  }, [bookingDetails, duration]);
+
+  const getBookingIdForSlot = useCallback((therapistId: number, slot: TimeSlot): number | null => {
+    const b = getBookingForSlot(therapistId, slot);
+    return b ? b.bookingId : null;
+  }, [getBookingForSlot]);
+
+  const handleCellEnter = useCallback((e: React.MouseEvent, therapistId: number, slot: TimeSlot) => {
+    if (!showDetails) return;
+    const booking = getBookingForSlot(therapistId, slot);
+    if (!booking) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTooltip({
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      booking,
+    });
+  }, [showDetails, getBookingForSlot]);
+
+  const handleCellLeave = useCallback(() => {
+    setTooltip(null);
+  }, []);
+
   if (loading) {
     return <div className="text-center py-8 text-black">Loading therapist availability...</div>;
   }
@@ -89,35 +125,16 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
   const cellW = 72;
   const rowH = 36;
   const nameColW = 140;
-  const slotDuration = duration;
 
   const isAvailable = (therapistId: number, slot: TimeSlot) =>
     slot.availableTherapistIds?.includes(therapistId) ?? false;
-
-  const getBookingForSlot = (therapistId: number, slot: TimeSlot): BookingDetail | null => {
-    const details = bookingDetails[therapistId];
-    if (!details) return null;
-    const slotStart = timeToMin(slot.startTime);
-    const slotEnd = slotStart + slotDuration;
-    for (const b of details) {
-      const bStart = timeToMin(b.startTime);
-      const bEnd = timeToMin(b.endTime);
-      if (slotStart < bEnd && slotEnd > bStart) return b;
-    }
-    return null;
-  };
-
-  const getBookingIdForSlot = (therapistId: number, slot: TimeSlot): number | null => {
-    const b = getBookingForSlot(therapistId, slot);
-    return b ? b.bookingId : null;
-  };
 
   const handleCellClick = (startTime: string, therapistId: number) => {
     onSelectSlot?.(startTime, therapistId);
   };
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 relative">
       {/* Therapist names column */}
       <div className="flex-shrink-0 border-r border-gray-200 bg-gray-50" style={{ width: nameColW }}>
         <div className="h-[40px] border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
@@ -166,13 +183,15 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
                 return (
                   <div
                     key={slot.startTime}
-                    className="flex-shrink-0 relative group"
+                    className="flex-shrink-0 relative"
                     style={{ width: cellW }}
                   >
                     <button
                       disabled={!avail}
                       onClick={() => avail && handleCellClick(slot.startTime, t.therapistId)}
-                      className={`w-full h-full border-r border-b border-gray-100 transition relative ${
+                      onMouseEnter={e => handleCellEnter(e, t.therapistId, slot)}
+                      onMouseLeave={handleCellLeave}
+                      className={`w-full h-full border-r border-b border-gray-100 transition ${
                         avail
                           ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
                           : 'bg-white cursor-default'
@@ -181,15 +200,6 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
                     {separator && (
                       <div className="absolute top-0 right-0 w-0.5 bg-black z-10" style={{ height: rowH - 1 }} />
                     )}
-                    {!avail && showDetails && booking && (
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-50 pointer-events-none">
-                        <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
-                          <div className="font-mono font-semibold">{booking.bookingCode}</div>
-                          <div>{booking.startTime} - {booking.endTime}</div>
-                          <div>{booking.courseName || ''}</div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -197,6 +207,24 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
           ))}
         </div>
       </div>
+
+      {/* Fixed tooltip */}
+      {tooltip && (
+        <div
+          ref={tooltipRef}
+          className="fixed z-[9999] pointer-events-none -translate-x-1/2 -translate-y-full"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
+            <div className="font-mono font-semibold">{tooltip.booking.bookingCode}</div>
+            <div>{tooltip.booking.startTime} - {tooltip.booking.endTime}</div>
+            <div>{tooltip.booking.courseName || ''}</div>
+          </div>
+          <div className="flex justify-center">
+            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
