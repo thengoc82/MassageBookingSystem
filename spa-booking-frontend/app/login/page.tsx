@@ -22,7 +22,7 @@ export default function LoginPage() {
       const res = await login({ username, password });
       localStorage.setItem('access_token', res.data.access_token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
-      router.push('/dashboard');
+      router.push(res.data.user.role === 'admin' ? '/admin' : res.data.user.role === 'therapist' ? '/therapist' : '/dashboard');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {

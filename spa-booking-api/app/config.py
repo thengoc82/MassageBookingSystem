@@ -11,6 +11,7 @@ class Config:
     
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-key')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(seconds=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600)))
+    JWT_IDENTITY_CLAIM = 'identity'
     
     REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
     
