@@ -4,52 +4,94 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import RequireAuth from '@/components/RequireAuth';
 import AdminSidebar from '@/components/AdminSidebar';
+import TherapistGantt from '@/components/TherapistGantt';
 import { api } from '@/lib/api';
+
+function getStatusColor(status: string) {
+  switch (status) {
+    case 'Booked': return 'bg-blue-100 text-blue-800';
+    case 'CheckedIn': return 'bg-green-100 text-green-800';
+    case 'CheckedOut': return 'bg-gray-100 text-gray-800';
+    case 'Cancelled': return 'bg-red-100 text-red-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+}
 
 function AdminDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState({ shops: 0, therapists: 0, bookingsToday: 0 });
-  const [loading, setLoading] = useState(true);
+  const today = new Date().toISOString().slice(0, 10);
+  const [shops, setShops] = useState<any[]>([]);
+  const [shopId, setShopId] = useState<number | ''>('');
+  const [date, setDate] = useState(today);
+  const [bookings, setBookings] = useState<any[]>([]);
 
   useEffect(() => {
-    Promise.all([
-      api.admin.getShops().catch(() => ({ data: [] })),
-      api.admin.getBookings({ dateFrom: new Date().toISOString().slice(0, 10), dateTo: new Date().toISOString().slice(0, 10) }).catch(() => ({ data: [] }))
-    ]).then(([shops, bookings]) => {
-      const shopList = shops.data?.data || shops.data || [];
-      const bookingList = bookings.data?.data || bookings.data || [];
-      setStats({
-        shops: shopList.length,
-        therapists: 0,
-        bookingsToday: bookingList.length
-      });
-      setLoading(false);
-    });
+    api.admin.getShops().then(res => {
+      const list = res.data?.data || res.data || [];
+      setShops(list);
+      if (list.length) setShopId(list[0].shopId || list[0].id);
+    }).catch(() => {});
   }, []);
 
-  const cards = [
-    { label: 'Shops', value: stats.shops, onClick: () => router.push('/admin/shops') },
-    { label: "Today's Bookings", value: stats.bookingsToday, onClick: () => router.push('/admin/bookings') },
-    { label: 'Therapists', value: stats.therapists, onClick: () => router.push('/admin/therapists') },
-  ];
+  useEffect(() => {
+    if (!shopId) return;
+    api.admin.getBookings({ shopId: Number(shopId), dateFrom: date, dateTo: date }).then(res => {
+      setBookings(res.data?.data || res.data || []);
+    }).catch(() => {});
+  }, [shopId, date]);
 
   return (
     <div className="flex">
       <AdminSidebar />
-      <main className="flex-1 p-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Admin Dashboard</h1>
-        <p className="text-gray-600 mb-8">Welcome to the management console.</p>
-        <div className="grid md:grid-cols-3 gap-4">
-          {cards.map(c => (
-            <button
-              key={c.label}
-              onClick={c.onClick}
-              className="bg-white rounded-xl shadow border border-gray-200 p-6 text-left hover:shadow-lg transition"
-            >
-              <div className="text-sm text-gray-500">{c.label}</div>
-              <div className="text-4xl font-bold text-[#031050] mt-2">{loading ? '—' : c.value}</div>
-            </button>
-          ))}
+      <main className="flex-1 p-4 overflow-auto">
+        <div className="flex items-center gap-4 mb-4 flex-wrap">
+          <select
+            value={shopId}
+            onChange={e => setShopId(Number(e.target.value))}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
+          >
+            {shops.map((s: any) => (
+              <option key={s.shopId || s.id} value={s.shopId || s.id}>{s.shopName}</option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm"
+          />
+        </div>
+
+        <div className="bg-white rounded-xl shadow border border-gray-200 p-4 mb-6 overflow-auto">
+          {shopId && (
+            <TherapistGantt
+              shopId={Number(shopId)}
+              date={date}
+              duration={60}
+              numberOfPeople={1}
+            />
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-gray-900">Bookings on {date}</h2>
+          {bookings.length === 0 ? (
+            <div className="text-gray-500 text-sm">No bookings for this date.</div>
+          ) : (
+            bookings.map(b => (
+              <div
+                key={b.bookingId}
+                onClick={() => router.push(`/bookings/${b.bookingId}`)}
+                className="bg-white rounded-lg shadow border border-gray-200 p-3 cursor-pointer hover:shadow-md transition flex items-center justify-between"
+              >
+                <div>
+                  <div className="font-semibold text-gray-900 text-sm">#{b.bookingCode}</div>
+                  <div className="text-xs text-gray-600">{b.startTime}–{b.endTime} · {b.phoneNumber}</div>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(b.status)}`}>{b.status}</span>
+              </div>
+            ))
+          )}
         </div>
       </main>
     </div>

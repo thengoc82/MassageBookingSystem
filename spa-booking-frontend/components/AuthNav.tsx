@@ -33,29 +33,45 @@ export default function AuthNav() {
     router.push('/');
   };
 
+  const role = user?.role;
+
   return (
-    <div className="flex items-center gap-3">
-      {user ? (
+    <div className="flex items-center gap-6">
+      {!role && (
         <>
-          <span className="text-white/80 text-sm hidden sm:inline">
-            {user.username}
-            <span className="text-white/40 ml-1">({user.type})</span>
-          </span>
-          <button
-            onClick={handleLogout}
+          <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
+          <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
+        </>
+      )}
+      {role === 'admin' && (
+        <Link href="/admin" className="text-white/80 hover:text-white">Admin</Link>
+      )}
+      {role === 'therapist' && (
+        <Link href="/therapist" className="text-white/80 hover:text-white">Therapist</Link>
+      )}
+      <div className="flex items-center gap-3">
+        {user ? (
+          <>
+            <span className="text-white/80 text-sm hidden sm:inline">
+              {user.username}
+              <span className="text-white/40 ml-1">({user.type})</span>
+            </span>
+            <button
+              onClick={handleLogout}
+              className="text-white/80 hover:text-white text-sm border border-white/20 rounded px-3 py-1"
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <Link
+            href="/login"
             className="text-white/80 hover:text-white text-sm border border-white/20 rounded px-3 py-1"
           >
-            Logout
-          </button>
-        </>
-      ) : (
-        <Link
-          href="/login"
-          className="text-white/80 hover:text-white text-sm border border-white/20 rounded px-3 py-1"
-        >
-          Login
-        </Link>
-      )}
+            Login
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

@@ -20,11 +20,7 @@ function NavBar() {
                 <Link href="/" className="text-2xl font-bold text-white">
                 Massage Booking App
               </Link>
-              <div className="flex items-center gap-6">
-                <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
-                <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
-                <AuthNav />
-              </div>
+              <AuthNav />
           </div>
         </div>
       </nav>

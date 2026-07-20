@@ -10,7 +10,7 @@ const links = [
   { href: '/admin/therapists', label: 'Therapists' },
   { href: '/admin/courses', label: 'Courses' },
   { href: '/admin/schedules', label: 'Therapist Schedules' },
-  { href: '/admin/slots', label: 'Slots' },
+
   { href: '/admin/customers', label: 'Customers' },
 ];
 
