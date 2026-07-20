@@ -60,9 +60,9 @@ def create_therapist(shop_id):
         name=data['name'],
         gender=data['gender'],
         phone_number=data.get('phoneNumber'),
-        username=data['username'],
-        password=data['password']
+        username=data['username']
     )
+    therapist.set_password(data['password'])
     
     db.session.add(therapist)
     db.session.commit()

@@ -16,7 +16,7 @@ def get_schedule():
         raise ValidationError('dateFrom and dateTo are required')
     
     identity = get_jwt_identity()
-    therapist_id = identity.get('ref_id')
+    therapist_id = identity.get('ref_id') or identity.get('user_id')
     
     schedule = TherapistService.get_schedule(therapist_id, date_from, date_to)
     
