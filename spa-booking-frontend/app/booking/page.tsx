@@ -98,7 +98,7 @@ export default function BookingConfirmPage() {
       const course = courses.find(c => c.courseId === data.courseId);
       if (course) {
         setCourseName(course.courseName);
-        setCoursePrice(course.price);
+        setCoursePrice(course.durations?.[0]?.price || 0);
       }
     } catch {}
   };

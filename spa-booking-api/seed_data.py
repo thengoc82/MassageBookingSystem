@@ -32,25 +32,19 @@ with app.app_context():
     db.session.flush()
     
     # Create courses
-    courses_data = [
-        {'name': 'Thai Massage', 'duration': 60, 'price': 500000, 'type': 'main'},
-        {'name': 'Swedish Massage', 'duration': 90, 'price': 700000, 'type': 'main'},
-        {'name': 'Deep Tissue Massage', 'duration': 60, 'price': 600000, 'type': 'main'},
-        {'name': 'Hot Stone Massage', 'duration': 90, 'price': 800000, 'type': 'main'},
-        {'name': 'Aromatherapy', 'duration': 30, 'price': 200000, 'type': 'addon'},
-        {'name': 'Foot Massage', 'duration': 30, 'price': 150000, 'type': 'addon'},
-        {'name': 'Head Massage', 'duration': 20, 'price': 100000, 'type': 'addon'},
+    course_defs = [
+        {'name': 'Thai Massage', 'type': 'main', 'durations': [{'duration': 15, 'price': 150000}, {'duration': 30, 'price': 300000}, {'duration': 45, 'price': 400000}, {'duration': 60, 'price': 500000}]},
+        {'name': 'Swedish Massage', 'type': 'main', 'durations': [{'duration': 15, 'price': 200000}, {'duration': 30, 'price': 400000}, {'duration': 45, 'price': 550000}, {'duration': 60, 'price': 700000}]},
+        {'name': 'Deep Tissue', 'type': 'main', 'durations': [{'duration': 15, 'price': 180000}, {'duration': 30, 'price': 350000}, {'duration': 45, 'price': 500000}, {'duration': 60, 'price': 600000}]},
+        {'name': 'Hot Stone Massage', 'type': 'main', 'durations': [{'duration': 15, 'price': 250000}, {'duration': 30, 'price': 450000}, {'duration': 45, 'price': 650000}, {'duration': 60, 'price': 800000}]},
+        {'name': 'Aromatherapy', 'type': 'addon', 'durations': [{'duration': 15, 'price': 100000}, {'duration': 30, 'price': 200000}]},
+        {'name': 'Foot Massage', 'type': 'addon', 'durations': [{'duration': 15, 'price': 80000}, {'duration': 30, 'price': 150000}]},
+        {'name': 'Head Massage', 'type': 'addon', 'durations': [{'duration': 10, 'price': 50000}, {'duration': 20, 'price': 100000}]},
     ]
     
-    for course_data in courses_data:
-        course = Course(
-            shop_id=shop.id,
-            name=course_data['name'],
-            duration=course_data['duration'],
-            price=course_data['price'],
-            course_type=course_data['type'],
-            status='active'
-        )
+    for cd in course_defs:
+        course = Course(shop_id=shop.id, name=cd['name'], course_type=cd['type'], status='active')
+        course.set_durations(cd['durations'])
         db.session.add(course)
     
     # Create therapists

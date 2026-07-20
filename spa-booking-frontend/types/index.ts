@@ -8,11 +8,15 @@ export interface Shop {
   closeTime: string;
 }
 
+export interface CourseDuration {
+  duration: number;
+  price: number;
+}
+
 export interface Course {
   courseId: number;
   courseName: string;
-  duration: number;
-  price: number;
+  durations: CourseDuration[];
   courseType: 'main' | 'addon';
   status?: string;
 }

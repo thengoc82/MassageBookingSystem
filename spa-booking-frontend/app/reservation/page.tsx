@@ -11,8 +11,7 @@ const MEMBERSHIPS = ['Royal Member', 'App Member', 'Card Member', 'Web Member', 
 interface ApiCourse {
   courseId: number;
   courseName: string;
-  duration: number;
-  price: number;
+  durations: { duration: number; price: number }[];
   courseType: 'main' | 'addon';
 }
 
@@ -243,18 +242,22 @@ function ReservationForm() {
           <div className="flex-1 min-w-0">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="text-xs font-semibold text-gray-900 mb-3">Choose Course & Duration</h3>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                 {mainCourses.map(c => (
                   <div key={c.courseId}>
                     <div className="text-xs font-semibold text-gray-800 mb-1.5">{c.courseName}</div>
-                    <button onClick={() => setCourseDurations(p => ({ ...p, [c.courseId]: p[c.courseId] === c.duration ? 0 : c.duration }))}
-                      className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
-                        courseDurations[c.courseId] === c.duration
-                          ? 'bg-[#031050] text-white border-[#031050]'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
-                      }`}>
-                      {c.duration} min
-                    </button>
+                    <div className="flex flex-wrap gap-1">
+                      {(c.durations || []).map((d: any) => (
+                        <button key={d.duration} onClick={() => setCourseDurations(p => ({ ...p, [c.courseId]: p[c.courseId] === d.duration ? 0 : d.duration }))}
+                          className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
+                            courseDurations[c.courseId] === d.duration
+                              ? 'bg-[#031050] text-white border-[#031050]'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
+                          }`}>
+                          {d.duration} min
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>

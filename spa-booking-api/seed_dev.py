@@ -24,18 +24,19 @@ with app.app_context():
     db.session.add(shop2)
     db.session.flush()
 
-    courses = [
-        Course(shop_id=shop.id, name='Full Body Massage', duration=60, price=6000, course_type='main'),
-        Course(shop_id=shop.id, name='Full Body Massage', duration=90, price=9000, course_type='main'),
-        Course(shop_id=shop.id, name='Full Body Massage', duration=120, price=12000, course_type='main'),
-        Course(shop_id=shop.id, name='Dry Head Spa', duration=30, price=3000, course_type='main'),
-        Course(shop_id=shop.id, name='Dry Head Spa', duration=60, price=5500, course_type='main'),
-        Course(shop_id=shop.id, name='Aromatherapy', duration=60, price=7000, course_type='main'),
-        Course(shop_id=shop.id, name='Premium Mattress', duration=0, price=1500, course_type='addon'),
-        Course(shop_id=shop.id, name='Foot Reflexology', duration=0, price=2000, course_type='addon'),
+    course_defs = [
+        {'name': 'Full Body Massage', 'type': 'main', 'durations': [{'duration': 15, 'price': 1500}, {'duration': 30, 'price': 3000}, {'duration': 45, 'price': 4500}, {'duration': 60, 'price': 6000}]},
+        {'name': 'Dry Head Spa', 'type': 'main', 'durations': [{'duration': 15, 'price': 1500}, {'duration': 30, 'price': 3000}]},
+        {'name': 'Aromatherapy', 'type': 'main', 'durations': [{'duration': 15, 'price': 3500}, {'duration': 30, 'price': 7000}]},
+        {'name': 'Premium Mattress', 'type': 'addon', 'durations': [{'duration': 0, 'price': 1500}]},
+        {'name': 'Foot Reflexology', 'type': 'addon', 'durations': [{'duration': 0, 'price': 2000}]},
     ]
-    for c in courses:
-        db.session.add(c)
+    courses = []
+    for cd in course_defs:
+        course = Course(shop_id=shop.id, name=cd['name'], course_type=cd['type'])
+        course.set_durations(cd['durations'])
+        db.session.add(course)
+        courses.append(course)
 
     therapists = [
         Therapist(shop_id=shop.id, name='Tanaka Yuki', gender='Female', status='active'),
