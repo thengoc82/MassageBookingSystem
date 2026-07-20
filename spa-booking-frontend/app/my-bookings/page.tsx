@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import type { Booking } from '@/types';
 
 export default function MyBookingsPage() {
+  const router = useRouter();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
@@ -89,7 +91,11 @@ export default function MyBookingsPage() {
 
         <div className="space-y-4">
           {bookings.map((booking) => (
-            <div key={booking.bookingId} className="bg-white rounded-lg shadow-lg p-6">
+            <div
+              key={booking.bookingId}
+              onClick={() => router.push(`/bookings/${booking.bookingId}`)}
+              className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow"
+            >
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900">Booking #{booking.bookingCode}</h2>
@@ -150,7 +156,7 @@ export default function MyBookingsPage() {
 
               {booking.status === 'Booked' && (
                 <button
-                  onClick={() => handleCancel(booking.bookingId)}
+                  onClick={(e) => { e.stopPropagation(); handleCancel(booking.bookingId); }}
                   className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
                 >
                   Cancel Booking

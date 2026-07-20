@@ -50,12 +50,20 @@ export interface Booking {
   phoneNumber: string;
   bookingDate: string;
   startTime: string;
+  endTime: string;
   numberOfPeople: number;
   status: 'Booked' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
   therapistId?: number;
   therapistName?: string;
-  services?: BookingService[];
-  addOns?: BookingService[];
+  services?: BookingServiceDetail[];
+  addOns?: BookingServiceDetail[];
+  preferences?: Record<string, unknown>;
+}
+
+export interface BookingServiceDetail {
+  personIndex: number;
+  courseId: number;
+  courseName?: string;
 }
 
 export interface BookingFormData {

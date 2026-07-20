@@ -1,11 +1,12 @@
+import json
+import random
+import string
 from datetime import datetime, timedelta
 from app.models.booking import Booking, BookingService as BookingServiceModel, BookingAddon
 from app.models.therapist import Therapist
 from app.services.customer_service import CustomerService
 from app.extensions import db
 from app.utils.errors import ResourceNotFound, BusinessRuleViolation, ValidationError
-import random
-import string
 
 class BookingService:
     @staticmethod
@@ -137,6 +138,11 @@ class BookingService:
                     course_id=addon['courseId']
                 )
                 db.session.add(booking_addon)
+
+            core_keys = {'phoneNumber', 'shopId', 'bookingDate', 'startTime', 'duration', 'numberOfPeople', 'courseId', 'services', 'addOns', 'therapistPreferenceType', 'therapistPreferenceValue'}
+            preferences = {k: v for k, v in data.items() if k not in core_keys and v is not None}
+            if preferences:
+                booking.preferences_json = json.dumps(preferences, ensure_ascii=False)
 
             pos_result = BookingService._call_pos_api(booking)
 
@@ -388,6 +394,7 @@ class BookingService:
             'phoneNumber': booking.phone_number,
             'bookingDate': booking.booking_date.strftime('%Y-%m-%d'),
             'startTime': booking.start_time.strftime('%H:%M'),
+            'endTime': booking.end_time.strftime('%H:%M'),
             'numberOfPeople': booking.number_of_people,
             'status': booking.status
         }
@@ -408,5 +415,11 @@ class BookingService:
                 'courseId': a.course_id,
                 'courseName': a.course.name if a.course else None
             } for a in booking.addons]
+
+            if booking.preferences_json:
+                try:
+                    result['preferences'] = json.loads(booking.preferences_json)
+                except (json.JSONDecodeError, TypeError):
+                    result['preferences'] = None
 
         return result

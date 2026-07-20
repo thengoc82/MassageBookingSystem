@@ -17,6 +17,7 @@ class Booking(db.Model):
     therapist_gender = db.Column(db.String(10), nullable=True)
     status = db.Column(db.String(20), nullable=False, default='Booked')
     internal_notes = db.Column(db.Text, nullable=True)
+    preferences_json = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(20), default='customer')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
