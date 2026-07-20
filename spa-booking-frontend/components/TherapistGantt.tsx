@@ -28,6 +28,10 @@ function timeToMin(t: string) {
   return h * 60 + m;
 }
 
+function shortCode(code: string) {
+  return code.slice(-6);
+}
+
 export default function TherapistGantt({ shopId, date, duration, numberOfPeople, startTime, gender, onSelectSlot, showDetails }: Props) {
   const [therapists, setTherapists] = useState<TherapistInfo[]>([]);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -35,8 +39,6 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; booking: BookingDetail } | null>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,22 +96,6 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     return b ? b.bookingId : null;
   }, [getBookingForSlot]);
 
-  const handleCellEnter = useCallback((e: React.MouseEvent, therapistId: number, slot: TimeSlot) => {
-    if (!showDetails) return;
-    const booking = getBookingForSlot(therapistId, slot);
-    if (!booking) return;
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setTooltip({
-      x: rect.left + rect.width / 2,
-      y: rect.top - 8,
-      booking,
-    });
-  }, [showDetails, getBookingForSlot]);
-
-  const handleCellLeave = useCallback(() => {
-    setTooltip(null);
-  }, []);
-
   if (loading) {
     return <div className="text-center py-8 text-black">Loading therapist availability...</div>;
   }
@@ -123,7 +109,7 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
   }
 
   const cellW = 72;
-  const rowH = 36;
+  const rowH = showDetails ? 60 : 36;
   const nameColW = 140;
 
   const isAvailable = (therapistId: number, slot: TimeSlot) =>
@@ -134,10 +120,10 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
   };
 
   return (
-    <div className="flex h-full min-h-0 relative">
+    <div className="flex h-full min-h-0">
       {/* Therapist names column */}
       <div className="flex-shrink-0 border-r border-gray-200 bg-gray-50" style={{ width: nameColW }}>
-        <div className="h-[40px] border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
+        <div className="h-10 border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
           Therapist
         </div>
         {therapists.map(t => (
@@ -186,17 +172,23 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
                     className="flex-shrink-0 relative"
                     style={{ width: cellW }}
                   >
-                    <button
-                      disabled={!avail}
-                      onClick={() => avail && handleCellClick(slot.startTime, t.therapistId)}
-                      onMouseEnter={e => handleCellEnter(e, t.therapistId, slot)}
-                      onMouseLeave={handleCellLeave}
-                      className={`w-full h-full border-r border-b border-gray-100 transition ${
-                        avail
-                          ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
-                          : 'bg-white cursor-default'
-                      }`}
-                    />
+                    {showDetails && !avail && booking ? (
+                      <div className="w-full h-full border-r border-b border-gray-100 bg-slate-800 text-white flex flex-col justify-center items-center px-1 overflow-hidden">
+                        <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(booking.bookingCode)}</span>
+                        <span className="text-[9px] leading-tight text-white/80">{booking.startTime}-{booking.endTime}</span>
+                        <span className="text-[9px] leading-tight text-white/60 truncate w-full text-center">{booking.courseName || ''}</span>
+                      </div>
+                    ) : (
+                      <button
+                        disabled={!avail}
+                        onClick={() => avail && handleCellClick(slot.startTime, t.therapistId)}
+                        className={`w-full h-full border-r border-b border-gray-100 transition ${
+                          avail
+                            ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
+                            : 'bg-white cursor-default'
+                        }`}
+                      />
+                    )}
                     {separator && (
                       <div className="absolute top-0 right-0 w-0.5 bg-black z-10" style={{ height: rowH - 1 }} />
                     )}
@@ -207,24 +199,6 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
           ))}
         </div>
       </div>
-
-      {/* Fixed tooltip */}
-      {tooltip && (
-        <div
-          ref={tooltipRef}
-          className="fixed z-[9999] pointer-events-none -translate-x-1/2 -translate-y-full"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
-            <div className="font-mono font-semibold">{tooltip.booking.bookingCode}</div>
-            <div>{tooltip.booking.startTime} - {tooltip.booking.endTime}</div>
-            <div>{tooltip.booking.courseName || ''}</div>
-          </div>
-          <div className="flex justify-center">
-            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900" />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
