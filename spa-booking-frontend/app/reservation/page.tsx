@@ -166,9 +166,7 @@ function ReservationForm() {
           <div className="w-px h-8 bg-gray-200" />
           <div>
             <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Time</label>
-            <input type="time" value={selectedTime} readOnly
-              min={timeMin} max={timeMax}
-              className="mt-0.5 border border-gray-300 rounded px-3 py-1 text-sm font-semibold text-gray-900 bg-gray-100 cursor-not-allowed" />
+            <div className="text-base font-semibold text-gray-900 mt-0.5">{selectedTime}</div>
           </div>
         </div>
 

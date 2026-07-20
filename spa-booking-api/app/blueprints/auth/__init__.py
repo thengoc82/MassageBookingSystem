@@ -39,7 +39,7 @@ def login():
     if therapist and therapist.check_password(data['password']) and therapist.status == 'active':
         access_token = create_access_token(identity={
             'user_id': therapist.id,
-            'username': therapist.username || therapist.name,
+            'username': therapist.username or therapist.name,
             'role': 'therapist',
             'type': 'therapist'
         })
@@ -48,7 +48,7 @@ def login():
             'access_token': access_token,
             'user': {
                 'id': therapist.id,
-                'username': therapist.username || therapist.name,
+                'username': therapist.username or therapist.name,
                 'role': 'therapist',
                 'type': 'therapist'
             }

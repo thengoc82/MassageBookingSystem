@@ -1,12 +1,13 @@
 from flask import Blueprint, request
 from flask_jwt_extended import get_jwt_identity
-from app.blueprints.therapist import schedule, profile
 from app.models.therapist import Therapist
 from app.utils.decorators import role_required
 from app.utils import success_response
 from app.utils.errors import Unauthorized
 
 therapist_bp = Blueprint('therapist', __name__)
+
+from app.blueprints.therapist import schedule
 
 @therapist_bp.route('/me/profile', methods=['GET'])
 @role_required('therapist')
