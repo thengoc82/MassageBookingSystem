@@ -11,16 +11,23 @@ export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
-  const handleSearch = async () => {
+  const handleSearch = async (targetPage = 1) => {
     if (!phoneNumber) return;
 
     try {
       setLoading(true);
-      const response = await api.bookings.getAll({ phone: phoneNumber });
-      
+      setPage(targetPage);
+      const response = await api.bookings.getAll({ phone: phoneNumber, page: targetPage, size: 10 });
+
       if (response.success) {
+        const pagination = response.data.pagination;
         setBookings(response.data.data || response.data);
+        setTotalPages(pagination?.totalPages || 1);
+        setTotal(pagination?.total || 0);
         setSearched(true);
       }
     } catch (error) {
@@ -36,7 +43,7 @@ export default function MyBookingsPage() {
     try {
       const response = await api.bookings.cancel(bookingId);
       if (response.success) {
-        handleSearch();
+        handleSearch(page);
       }
     } catch (error) {
       console.error('Failed to cancel booking:', error);
@@ -74,7 +81,7 @@ export default function MyBookingsPage() {
               className="flex-1 rounded-lg border-2 border-[#365F91] p-3 text-gray-900 placeholder:text-[#6B7C93]"
             />
             <button
-              onClick={handleSearch}
+              onClick={() => handleSearch()}
               disabled={!phoneNumber || loading}
               className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
             >
@@ -165,6 +172,29 @@ export default function MyBookingsPage() {
             </div>
           ))}
         </div>
+
+        {searched && totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+            <span className="text-sm text-gray-500">{total} booking{total !== 1 ? 's' : ''}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleSearch(page - 1)}
+                disabled={page <= 1 || loading}
+                className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
+              <button
+                onClick={() => handleSearch(page + 1)}
+                disabled={page >= totalPages || loading}
+                className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

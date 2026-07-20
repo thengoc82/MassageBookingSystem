@@ -300,6 +300,7 @@ class BookingService:
         page = filters.get('page', 1)
         size = filters.get('size', 20)
 
+        query = query.order_by(Booking.created_at.desc().nullslast())
         total = query.count()
         bookings = query.offset((page - 1) * size).limit(size).all()
 
