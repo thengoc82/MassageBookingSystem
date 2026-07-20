@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
 from app.extensions import db
-from app.models import Shop, Course, Therapist
+from app.models import Shop, Course, Therapist, User
 
 app = create_app()
 
@@ -71,6 +71,21 @@ with app.app_context():
         )
         db.session.add(therapist)
     
+    admin = User(username='admin', role='admin')
+    admin.set_password('admin123')
+    db.session.add(admin)
+
+    therapist_creds = [
+        ('anna', 'anna123'),
+        ('john', 'john123'),
+        ('lisa', 'lisa123'),
+        ('david', 'david123'),
+    ]
+    therapists_list = Therapist.query.all()
+    for t, (un, pw) in zip(therapists_list, therapist_creds):
+        t.username = un
+        t.set_password(pw)
+
     db.session.commit()
     
     print("✓ Seeding complete!")
@@ -78,6 +93,10 @@ with app.app_context():
     print(f"Shop: {shop.name}")
     print(f"Courses: {len(courses_data)} (4 main, 3 addons)")
     print(f"Therapists: {len(therapists_data)}")
+    print("\n=== Accounts ===")
+    print("Admin:   admin / admin123")
+    for t, (un, _) in zip(therapists_list, therapist_creds):
+        print(f"{t.name}: {un} / {un}123")
     print("\n=== Ready to use! ===")
     print("Frontend: http://localhost:3000")
     print("Backend:  http://localhost:5000")

@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify
 from app.extensions import db
-from app.models import Shop, Course, Therapist
+from app.models import Shop, Course, Therapist, User
 from datetime import time
 
 setup_bp = Blueprint('setup', __name__)
@@ -63,6 +63,21 @@ def setup_demo_data():
         )
         db.session.add(therapist)
     
+    admin = User(username='admin', role='admin')
+    admin.set_password('admin123')
+    db.session.add(admin)
+
+    therapists_list = Therapist.query.all()
+    therapist_creds = [
+        ('anna', 'anna123'),
+        ('john', 'john123'),
+        ('lisa', 'lisa123'),
+        ('david', 'david123'),
+    ]
+    for t, (un, pw) in zip(therapists_list, therapist_creds):
+        t.username = un
+        t.set_password(pw)
+
     db.session.commit()
     
     return jsonify({
@@ -71,6 +86,11 @@ def setup_demo_data():
         'data': {
             'shop': shop.name,
             'courses': len(courses_data),
-            'therapists': len(therapists_data)
+            'therapists': len(therapists_data),
+            'accounts': {
+                'admin': {'username': 'admin', 'password': 'admin123'},
+                'therapists': {t.name: {'username': un, 'password': pw}
+                              for t, (un, pw) in zip(therapists_list, therapist_creds)}
+            }
         }
     }), 201
