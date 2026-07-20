@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, time
 from app.models.shop import Shop
 from app.models.therapist import Therapist
+from app.models.booking import Booking
 from app.services.therapist_service import TherapistService
 from app.extensions import db
 from app.utils.errors import ResourceNotFound, ValidationError
@@ -68,6 +69,34 @@ class SlotService:
             current_time += timedelta(minutes=SlotService.SLOT_INTERVAL)
 
         if show_therapists:
-            return {'therapists': therapist_list, 'slots': slots}
+            bookings_q = Booking.query.filter(
+                Booking.shop_id == shop_id,
+                Booking.booking_date == date_obj,
+                Booking.status.in_(['Booked', 'CheckedIn']),
+                Booking.therapist_id.isnot(None)
+            ).all()
+
+            therapist_booking_details = {}
+            for t in all_therapists:
+                therapist_booking_details[t.id] = []
+
+            for b in bookings_q:
+                main_service = None
+                sorted_services = sorted(b.services, key=lambda s: s.person_index) if b.services else []
+                if sorted_services:
+                    main_service = sorted_services[0]
+                    course_name = main_service.course.name if main_service.course else None
+                else:
+                    course_name = None
+
+                therapist_booking_details[b.therapist_id].append({
+                    'bookingId': b.id,
+                    'bookingCode': b.booking_code,
+                    'startTime': b.start_time.strftime('%H:%M'),
+                    'endTime': b.end_time.strftime('%H:%M'),
+                    'courseName': course_name
+                })
+
+            return {'therapists': therapist_list, 'slots': slots, 'therapistBookingDetails': therapist_booking_details}
 
         return slots

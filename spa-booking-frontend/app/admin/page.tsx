@@ -69,6 +69,7 @@ function AdminDashboard() {
               date={date}
               duration={60}
               numberOfPeople={1}
+              showDetails={true}
             />
           )}
         </div>

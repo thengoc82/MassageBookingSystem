@@ -35,11 +35,14 @@ def get_available_slots(shop_id):
     )
     
     if show_therapists:
-        return jsonify({
+        response = {
             'success': True,
             'data': result['slots'],
             'therapists': result['therapists'],
             'message': 'Success'
-        }), 200
+        }
+        if 'therapistBookingDetails' in result:
+            response['therapistBookingDetails'] = result['therapistBookingDetails']
+        return jsonify(response), 200
     
     return success_response(result)
