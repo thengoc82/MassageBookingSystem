@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Inter } from "next/font/google";
+import AuthNav from "@/components/AuthNav";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -19,9 +20,10 @@ function NavBar() {
                 <Link href="/" className="text-2xl font-bold text-white">
                 Massage Booking App
               </Link>
-              <div className="flex gap-6">
+              <div className="flex items-center gap-6">
                 <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
                 <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
+                <AuthNav />
               </div>
           </div>
         </div>
