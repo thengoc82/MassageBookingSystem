@@ -91,10 +91,36 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     return null;
   }, [bookingDetails, duration]);
 
-  const getBookingIdForSlot = useCallback((therapistId: number, slot: TimeSlot): number | null => {
-    const b = getBookingForSlot(therapistId, slot);
-    return b ? b.bookingId : null;
-  }, [getBookingForSlot]);
+  const buildRowSegments = useCallback((therapistId: number) => {
+    type SegItem = { type: 'avail'; slot: TimeSlot } | { type: 'booked'; booking: BookingDetail; count: number };
+    const segs: SegItem[] = [];
+
+    if (showDetails) {
+      let i = 0;
+      while (i < slots.length) {
+        const booking = getBookingForSlot(therapistId, slots[i]);
+        if (booking) {
+          let count = 0;
+          while (i + count < slots.length) {
+            const b = getBookingForSlot(therapistId, slots[i + count]);
+            if (!b || b.bookingId !== booking.bookingId) break;
+            count++;
+          }
+          segs.push({ type: 'booked', booking, count });
+          i += count;
+        } else {
+          segs.push({ type: 'avail', slot: slots[i] });
+          i++;
+        }
+      }
+    } else {
+      for (const slot of slots) {
+        segs.push({ type: 'avail', slot });
+      }
+    }
+
+    return segs;
+  }, [slots, getBookingForSlot, showDetails]);
 
   if (loading) {
     return <div className="text-center py-8 text-black">Loading therapist availability...</div>;
@@ -121,7 +147,6 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
 
   return (
     <div className="flex h-full min-h-0">
-      {/* Therapist names column */}
       <div className="flex-shrink-0 border-r border-gray-200 bg-gray-50" style={{ width: nameColW }}>
         <div className="h-10 border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
           Therapist
@@ -137,10 +162,8 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
         ))}
       </div>
 
-      {/* Scrollable grid */}
       <div ref={scrollRef} className="overflow-auto flex-1 min-w-0">
         <div style={{ width: slots.length * cellW, minWidth: '100%' }}>
-          {/* Header row */}
           <div className="flex h-10 border-b border-gray-200 bg-gray-100 sticky top-0 z-10">
             {slots.map(slot => (
               <div
@@ -153,50 +176,44 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
             ))}
           </div>
 
-          {/* Therapist rows */}
-          {therapists.map(t => (
-            <div key={t.therapistId} className="flex" style={{ height: rowH }}>
-              {slots.map((slot, slotIdx) => {
-                const avail = isAvailable(t.therapistId, slot);
-                const booking = showDetails ? getBookingForSlot(t.therapistId, slot) : null;
-
-                const prevBookingId = showDetails && slotIdx > 0
-                  ? getBookingIdForSlot(t.therapistId, slots[slotIdx - 1])
-                  : null;
-                const currBookingId = booking?.bookingId ?? null;
-                const separator = showDetails && prevBookingId !== null && currBookingId !== null && prevBookingId !== currBookingId;
-
-                return (
-                  <div
-                    key={slot.startTime}
-                    className="flex-shrink-0 relative"
-                    style={{ width: cellW }}
-                  >
-                    {showDetails && !avail && booking ? (
-                      <div className="w-full h-full border-r border-b border-gray-100 bg-slate-800 text-white flex flex-col justify-center items-center px-1 overflow-hidden">
-                        <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(booking.bookingCode)}</span>
-                        <span className="text-[9px] leading-tight text-white/80">{booking.startTime}-{booking.endTime}</span>
-                        <span className="text-[9px] leading-tight text-white/60 truncate w-full text-center">{booking.courseName || ''}</span>
+          {therapists.map(t => {
+            const segments = buildRowSegments(t.therapistId);
+            return (
+              <div key={t.therapistId} className="flex" style={{ height: rowH }}>
+                {segments.map((seg, segIdx) => {
+                  if (seg.type === 'booked') {
+                    const w = seg.count * cellW;
+                    return (
+                      <div
+                        key={`b-${seg.booking.bookingId}`}
+                        className={`flex-shrink-0 h-full bg-slate-800 text-white flex flex-col justify-center items-center px-1 overflow-hidden border-b border-gray-100 ${
+                          segIdx < segments.length - 1 ? 'border-r border-black' : 'border-r border-gray-100'
+                        }`}
+                        style={{ width: w }}
+                      >
+                        <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(seg.booking.bookingCode)}</span>
+                        <span className="text-[9px] leading-tight text-white/80">{seg.booking.startTime}-{seg.booking.endTime}</span>
+                        <span className="text-[9px] leading-tight text-white/60 truncate w-full text-center">{seg.booking.courseName || ''}</span>
                       </div>
-                    ) : (
+                    );
+                  }
+                  return (
+                    <div key={`a-${seg.slot.startTime}`} className="flex-shrink-0" style={{ width: cellW }}>
                       <button
-                        disabled={!avail}
-                        onClick={() => avail && handleCellClick(slot.startTime, t.therapistId)}
+                        disabled={!isAvailable(t.therapistId, seg.slot)}
+                        onClick={() => isAvailable(t.therapistId, seg.slot) && handleCellClick(seg.slot.startTime, t.therapistId)}
                         className={`w-full h-full border-r border-b border-gray-100 transition ${
-                          avail
+                          isAvailable(t.therapistId, seg.slot)
                             ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
                             : 'bg-white cursor-default'
                         }`}
                       />
-                    )}
-                    {separator && (
-                      <div className="absolute top-0 right-0 w-0.5 bg-black z-10" style={{ height: rowH - 1 }} />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
