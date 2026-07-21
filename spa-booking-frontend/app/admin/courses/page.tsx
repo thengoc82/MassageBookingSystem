@@ -10,6 +10,7 @@ function AdminCourses() {
   const [shopId, setShopId] = useState<number | ''>('');
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({
     courseName: '',
     courseType: 'main' as 'main' | 'addon',
@@ -34,15 +35,44 @@ function AdminCourses() {
 
   useEffect(() => { load(); }, [shopId]);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({ courseName: '', courseType: 'main', durations: [{ duration: 15, price: 0 }] });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.admin.createCourse(Number(shopId), {
+      const payload = {
         courseName: form.courseName,
         courseType: form.courseType,
         durations: form.durations.filter(d => d.duration > 0),
-      });
-      setForm({ courseName: '', courseType: 'main', durations: [{ duration: 15, price: 0 }] });
+      };
+      if (editingId) {
+        await api.admin.updateCourse(Number(shopId), editingId, payload);
+      } else {
+        await api.admin.createCourse(Number(shopId), payload);
+      }
+      resetForm();
+      load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const startEdit = (c: any) => {
+    setEditingId(c.courseId);
+    setForm({
+      courseName: c.courseName,
+      courseType: c.courseType,
+      durations: (c.durations || []).length > 0
+        ? (c.durations || []).map((d: any) => ({ duration: d.duration, price: d.price }))
+        : [{ duration: 15, price: 0 }],
+    });
+  };
+
+  const handleDelete = async (courseId: number) => {
+    if (!confirm('Deactivate this course?')) return;
+    try {
+      await api.admin.deleteCourse(Number(shopId), courseId);
       load();
     } catch (e: any) { alert(e.message); }
   };
@@ -63,19 +93,17 @@ function AdminCourses() {
     });
   };
 
-  const presetDurations = (type: 'fullbody' | 'other') => {
-    if (type === 'fullbody') {
-      setForm(f => ({ ...f, durations: [15, 30, 45, 60].map(d => ({ duration: d, price: d * 100 })) }));
-    } else {
-      setForm(f => ({ ...f, durations: [15, 30].map(d => ({ duration: d, price: d * 100 })) }));
-    }
-  };
+  function formatPrice(p: number) {
+    return p.toLocaleString() + ' VND';
+  }
 
   return (
     <div className="flex">
       <AdminSidebar />
       <main className="flex-1 p-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">Courses</h1>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">Courses</h1>
+        </div>
 
         <div className="mb-4">
           <label className="text-sm text-gray-600 mr-2">Shop:</label>
@@ -84,17 +112,16 @@ function AdminCourses() {
           </select>
         </div>
 
-        <form onSubmit={handleCreate} className="bg-white rounded-xl shadow border border-gray-200 p-6 mb-6 space-y-4">
-          <div className="grid md:grid-cols-3 gap-4">
-            <input placeholder="Course Name" value={form.courseName} onChange={e => setForm({ ...form, courseName: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" required />
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow border border-gray-200 p-6 mb-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <input placeholder="Course Name" value={form.courseName} onChange={e => setForm({ ...form, courseName: e.target.value })} className="border rounded-lg px-3 py-2 text-sm flex-1" required />
             <select value={form.courseType} onChange={e => setForm({ ...form, courseType: e.target.value as 'main' | 'addon' })} className="border rounded-lg px-3 py-2 text-sm">
               <option value="main">Main</option>
               <option value="addon">Addon</option>
             </select>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => presetDurations('fullbody')} className="text-xs bg-gray-100 px-3 py-2 rounded hover:bg-gray-200">Full Body (15-60)</button>
-              <button type="button" onClick={() => presetDurations('other')} className="text-xs bg-gray-100 px-3 py-2 rounded hover:bg-gray-200">Other (15-30)</button>
-            </div>
+            {editingId && (
+              <button type="button" onClick={resetForm} className="text-xs text-gray-500 hover:underline">Cancel</button>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -114,23 +141,29 @@ function AdminCourses() {
             ))}
           </div>
 
-          <button type="submit" className="bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b] w-full">Create Course</button>
+          <button type="submit" className="bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b] w-full">
+            {editingId ? 'Update Course' : 'Create Course'}
+          </button>
         </form>
 
         {loading ? <div className="text-gray-400">Loading...</div> : (
           <div className="space-y-4">
-            {courses.map((c: any) => (
+            {courses.filter((c: any) => c.status !== 'inactive').map((c: any) => (
               <div key={c.courseId} className="bg-white rounded-lg shadow border border-gray-200 p-4">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-semibold text-gray-900">{c.courseName}</div>
-                    <div className="text-xs text-gray-400 uppercase">{c.courseType} · {c.status || 'active'}</div>
+                    <div className="text-xs text-gray-400 uppercase">{c.courseType}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => startEdit(c)} className="text-xs bg-gray-100 px-3 py-1 rounded hover:bg-gray-200">Edit</button>
+                    <button onClick={() => handleDelete(c.courseId)} className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200">Delete</button>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {(c.durations || []).map((d: any, i: number) => (
                     <span key={i} className="bg-gray-100 text-gray-700 text-xs px-2.5 py-1 rounded-full">
-                      {d.duration}min · {d.price.toLocaleString()} VND
+                      {d.duration}min · {formatPrice(d.price)}
                     </span>
                   ))}
                 </div>

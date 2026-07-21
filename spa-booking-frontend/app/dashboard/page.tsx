@@ -36,6 +36,8 @@ export default function DashboardPage() {
   const [calMonth, setCalMonth] = useState(date.getMonth());
   const [calYear, setCalYear] = useState(date.getFullYear());
   const [recentBookings] = useState<RecentBooking[]>(() => readRecent());
+  const [duration, setDuration] = useState(60);
+  const [people, setPeople] = useState(1);
 
   useEffect(() => {
     api.shops.getAll().then(d => {
@@ -50,10 +52,16 @@ export default function DashboardPage() {
 
   const handleSlotClick = useCallback((time: string, therapistId: number) => {
     const dateStr = date.toISOString().split('T')[0];
-    const params = new URLSearchParams({ shopId: String(shopId), date: dateStr, time });
-    params.set('therapistId', String(therapistId));
+    const params = new URLSearchParams({
+      shopId: String(shopId),
+      date: dateStr,
+      time,
+      duration: String(duration),
+      people: String(people),
+    });
+    if (therapistId) params.set('therapistId', String(therapistId));
     router.push(`/reservation?${params.toString()}`);
-  }, [date, shopId, router]);
+  }, [date, duration, people, shopId, router]);
 
   const calDays = useCallback(() => {
     const dim = daysInMonth(calYear, calMonth);
@@ -109,6 +117,15 @@ export default function DashboardPage() {
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
             {shops.map(s => <option key={s.shopId} value={s.shopId}>{s.shopName}</option>)}
           </select>
+          <div className="w-px h-5 bg-gray-300" />
+          <select value={duration} onChange={e => setDuration(Number(e.target.value))}
+            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
+            {[15, 30, 45, 60, 75, 90].map(d => <option key={d} value={d}>{d} min</option>)}
+          </select>
+          <select value={people} onChange={e => setPeople(Number(e.target.value))}
+            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
+            {[1, 2, 3].map(n => <option key={n} value={n}>{n} {n > 1 ? 'people' : 'person'}</option>)}
+          </select>
         </div>
       </div>
 
@@ -125,8 +142,8 @@ export default function DashboardPage() {
           <TherapistGantt
             shopId={shopId}
             date={dateStr}
-            duration={60}
-            numberOfPeople={1}
+            duration={duration}
+            numberOfPeople={people}
             onSelectSlot={handleSlotClick}
           />
         ) : (

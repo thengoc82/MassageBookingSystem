@@ -126,6 +126,8 @@ export const api = {
       return authFetch(`${API_BASE_URL}/admin/shops/${shopId}/courses?${queryString}`);
     },
     createCourse: (shopId: number, data: any) => authFetch(`${API_BASE_URL}/admin/shops/${shopId}/courses`, { method: 'POST', body: JSON.stringify(data) }),
+    updateCourse: (shopId: number, courseId: number, data: any) => authFetch(`${API_BASE_URL}/admin/shops/${shopId}/courses/${courseId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteCourse: (shopId: number, courseId: number) => authFetch(`${API_BASE_URL}/admin/shops/${shopId}/courses/${courseId}`, { method: 'DELETE' }),
 
     getCustomers: (params?: any) => {
       const queryString = params ? new URLSearchParams(params).toString() : '';

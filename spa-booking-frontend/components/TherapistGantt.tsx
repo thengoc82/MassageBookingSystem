@@ -49,8 +49,10 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
       date,
       duration: String(duration),
       numberOfPeople: String(numberOfPeople),
-      show_therapists: 'true',
     };
+    if (numberOfPeople === 1) {
+      params.show_therapists = 'true';
+    }
     if (startTime) params.startTime = startTime;
     if (gender) params.gender = gender;
 
@@ -145,21 +147,32 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     onSelectSlot?.(startTime, therapistId);
   };
 
+  const capacityMode = numberOfPeople > 1;
+
   return (
     <div className="flex h-full min-h-0">
       <div className="flex-shrink-0 border-r border-gray-200 bg-gray-50" style={{ width: nameColW }}>
         <div className="h-10 border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
-          Therapist
+          {capacityMode ? 'Capacity' : 'Therapist'}
         </div>
-        {therapists.map(t => (
+        {capacityMode ? (
           <div
-            key={t.therapistId}
             className="flex items-center px-3 border-b border-gray-100 text-sm font-medium text-black"
             style={{ height: rowH }}
           >
-            {t.name}
+            {numberOfPeople} {numberOfPeople > 1 ? 'people' : 'person'}
           </div>
-        ))}
+        ) : (
+          therapists.map(t => (
+            <div
+              key={t.therapistId}
+              className="flex items-center px-3 border-b border-gray-100 text-sm font-medium text-black"
+              style={{ height: rowH }}
+            >
+              {t.name}
+            </div>
+          ))
+        )}
       </div>
 
       <div ref={scrollRef} className="overflow-auto flex-1 min-w-0">
@@ -176,44 +189,65 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
             ))}
           </div>
 
-          {therapists.map(t => {
-            const segments = buildRowSegments(t.therapistId);
-            return (
-              <div key={t.therapistId} className="flex" style={{ height: rowH }}>
-                {segments.map((seg, segIdx) => {
-                  if (seg.type === 'booked') {
-                    const w = seg.count * cellW;
+          {capacityMode ? (
+            <div className="flex" style={{ height: rowH }}>
+              {slots.map(slot => {
+                const enough = slot.availableCapacity >= numberOfPeople;
+                return (
+                  <div key={slot.startTime} className="flex-shrink-0" style={{ width: cellW }}>
+                    <button
+                      disabled={!enough}
+                      onClick={() => enough && handleCellClick(slot.startTime, 0)}
+                      className={`w-full h-full border-r border-b border-gray-100 transition ${
+                        enough
+                          ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
+                          : 'bg-white cursor-default'
+                      }`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            therapists.map(t => {
+              const segments = buildRowSegments(t.therapistId);
+              return (
+                <div key={t.therapistId} className="flex" style={{ height: rowH }}>
+                  {segments.map((seg, segIdx) => {
+                    if (seg.type === 'booked') {
+                      const w = seg.count * cellW;
+                      return (
+                        <div
+                          key={`b-${seg.booking.bookingId}`}
+                          className={`flex-shrink-0 h-full bg-slate-800 text-white flex flex-col justify-center items-center px-1 overflow-hidden border-b border-gray-100 ${
+                            segIdx < segments.length - 1 ? 'border-r border-black' : 'border-r border-gray-100'
+                          }`}
+                          style={{ width: w }}
+                        >
+                          <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(seg.booking.bookingCode)}</span>
+                          <span className="text-[9px] leading-tight text-white/80">{seg.booking.startTime}-{seg.booking.endTime}</span>
+                          <span className="text-[9px] leading-tight text-white/60 truncate w-full text-center">{seg.booking.courseName || ''}</span>
+                        </div>
+                      );
+                    }
                     return (
-                      <div
-                        key={`b-${seg.booking.bookingId}`}
-                        className={`flex-shrink-0 h-full bg-slate-800 text-white flex flex-col justify-center items-center px-1 overflow-hidden border-b border-gray-100 ${
-                          segIdx < segments.length - 1 ? 'border-r border-black' : 'border-r border-gray-100'
-                        }`}
-                        style={{ width: w }}
-                      >
-                        <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(seg.booking.bookingCode)}</span>
-                        <span className="text-[9px] leading-tight text-white/80">{seg.booking.startTime}-{seg.booking.endTime}</span>
-                        <span className="text-[9px] leading-tight text-white/60 truncate w-full text-center">{seg.booking.courseName || ''}</span>
+                      <div key={`a-${seg.slot.startTime}`} className="flex-shrink-0" style={{ width: cellW }}>
+                        <button
+                          disabled={!isAvailable(t.therapistId, seg.slot)}
+                          onClick={() => isAvailable(t.therapistId, seg.slot) && handleCellClick(seg.slot.startTime, t.therapistId)}
+                          className={`w-full h-full border-r border-b border-gray-100 transition ${
+                            isAvailable(t.therapistId, seg.slot)
+                              ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
+                              : 'bg-white cursor-default'
+                          }`}
+                        />
                       </div>
                     );
-                  }
-                  return (
-                    <div key={`a-${seg.slot.startTime}`} className="flex-shrink-0" style={{ width: cellW }}>
-                      <button
-                        disabled={!isAvailable(t.therapistId, seg.slot)}
-                        onClick={() => isAvailable(t.therapistId, seg.slot) && handleCellClick(seg.slot.startTime, t.therapistId)}
-                        className={`w-full h-full border-r border-b border-gray-100 transition ${
-                          isAvailable(t.therapistId, seg.slot)
-                            ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
-                            : 'bg-white cursor-default'
-                        }`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                  })}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
