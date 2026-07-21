@@ -149,7 +149,7 @@ function ReservationForm() {
         bodyMassageDuration: fbmDuration,
       };
 
-      if (preselectedTherapistId) {
+      if (preselectedTherapistId && people === 1) {
         payload.therapistPreferenceType = 'specific';
         payload.therapistPreferenceValue = preselectedTherapistId;
       }
@@ -360,7 +360,11 @@ function ReservationForm() {
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <h3 className="text-xs font-semibold text-gray-900 mb-2">Therapist Preference</h3>
-            {preselectedTherapistId ? (
+            {people > 1 ? (
+              <div className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5">
+                <span className="text-xs text-gray-600">Therapists will be auto-assigned for group bookings</span>
+              </div>
+            ) : preselectedTherapistId ? (
               <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
                 <span className="text-xs text-emerald-800 font-medium">Locked to selected therapist (#{preselectedTherapistId})</span>
               </div>
