@@ -63,11 +63,13 @@ function ReservationForm() {
   const [error, setError] = useState('');
 
   const fbmCourse = useMemo(() => courses.find(c => c.courseName.toLowerCase().includes('full body')), [courses]);
-  const fbmDuration = useMemo(() => {
-    if (!fbmCourse) return 0;
+  const [fbmDuration, setFbmDuration] = useState(0);
+
+  useEffect(() => {
+    if (!fbmCourse) return;
     const def = slotDuration >= 30 ? 30 : slotDuration;
     const match = fbmCourse.durations.find(d => d.duration === def);
-    return match ? match.duration : (fbmCourse.durations[0]?.duration || 0);
+    setFbmDuration(match ? match.duration : (fbmCourse.durations[0]?.duration || 0));
   }, [fbmCourse, slotDuration]);
 
   const addonCourses = useMemo(() => courses.filter(c => c.courseId !== fbmCourse?.courseId), [courses, fbmCourse]);
@@ -259,24 +261,26 @@ function ReservationForm() {
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <h3 className="text-xs font-semibold text-gray-900 mb-3">Select Courses</h3>
 
-          {/* FBM auto-selected */}
+          {/* FBM main course */}
           {fbmCourse && (
             <div className="border border-[#031050] rounded-lg p-3 mb-4 bg-blue-50">
-              <div className="text-xs font-semibold text-gray-900">{fbmCourse.courseName}</div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="text-xs font-semibold text-gray-900">{fbmCourse.courseName} <span className="font-normal text-gray-500">(main)</span></div>
+              <div className="flex flex-wrap gap-1 mt-1">
                 {fbmCourse.durations.map(d => {
                   const sel = fbmDuration === d.duration;
                   return (
-                    <span key={d.duration}
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
-                        sel ? 'bg-[#031050] text-white' : 'bg-gray-100 text-gray-500'
+                    <button key={d.duration} onClick={() => setFbmDuration(d.duration)}
+                      className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
+                        sel
+                          ? 'bg-[#031050] text-white border-[#031050]'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
                       }`}>
                       {d.duration} min
-                    </span>
+                    </button>
                   );
                 })}
               </div>
-              <div className="text-[10px] text-gray-400 mt-1">Auto-selected · {people} {people > 1 ? 'people ×' : 'person'}</div>
+              <div className="text-[10px] text-gray-400 mt-1">{people} {people > 1 ? 'people' : 'person'}</div>
             </div>
           )}
 

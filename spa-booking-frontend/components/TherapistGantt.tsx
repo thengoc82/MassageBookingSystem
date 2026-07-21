@@ -132,7 +132,7 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     return <div className="text-center py-8 text-red-600">{error}</div>;
   }
 
-  if (!therapists.length) {
+  if (!therapists.length && numberOfPeople === 1) {
     return <div className="text-center py-8 text-black">No therapists found for this shop.</div>;
   }
 
