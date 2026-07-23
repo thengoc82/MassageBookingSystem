@@ -32,6 +32,36 @@ function shortCode(code: string) {
   return code.slice(-6);
 }
 
+function buildBookingDetailsMap(bookings: any[]): Record<number, BookingDetail[]> {
+  const map: Record<number, BookingDetail[]> = {};
+  for (const b of bookings) {
+    if (b.status !== 'Booked' && b.status !== 'CheckedIn') continue;
+
+    const detail: BookingDetail = {
+      bookingId: b.bookingId,
+      bookingCode: b.bookingCode,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      courseName: null,
+    };
+
+        if (Array.isArray(b.therapistAssignments) && b.therapistAssignments.length > 0) {
+      for (const ta of b.therapistAssignments) {
+        if (!map[ta.therapistId]) map[ta.therapistId] = [];
+        if (!map[ta.therapistId].some(x => x.bookingId === b.bookingId)) {
+          map[ta.therapistId].push(detail);
+        }
+      }
+    } else if (b.therapistId) {
+      if (!map[b.therapistId]) map[b.therapistId] = [];
+      if (!map[b.therapistId].some(x => x.bookingId === b.bookingId)) {
+        map[b.therapistId].push(detail);
+      }
+    }
+  }
+  return map;
+}
+
 export default function TherapistGantt({ shopId, date, duration, numberOfPeople, startTime, gender, onSelectSlot, showDetails }: Props) {
   const [therapists, setTherapists] = useState<TherapistInfo[]>([]);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -45,27 +75,36 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     setLoading(true);
     setError(null);
 
-    const params: Record<string, string> = {
+    const slotParams: Record<string, string> = {
       date,
       duration: String(duration),
       numberOfPeople: String(numberOfPeople),
       show_therapists: 'true',
     };
-    if (startTime) params.startTime = startTime;
-    if (gender) params.gender = gender;
+    if (startTime) slotParams.startTime = startTime;
+    if (gender) slotParams.gender = gender;
 
-    api.shops.getAvailableSlots(shopId, params)
-      .then((res: any) => {
+    const bookingParams: Record<string, string> = {
+      shopId: String(shopId),
+      dateFrom: date,
+      dateTo: date,
+      size: '200',
+    };
+
+    Promise.all([
+      api.shops.getAvailableSlots(shopId, slotParams),
+      api.bookings.getAll(bookingParams),
+    ])
+      .then(([slotRes, bookingsRes]: any[]) => {
         if (cancelled) return;
-        const data = res?.data ?? res ?? [];
-        const t = res?.therapists ?? [];
-        setTherapists(t);
-        setSlots(Array.isArray(data) ? data : []);
-        if (res?.therapistBookingDetails) {
-          setBookingDetails(res.therapistBookingDetails);
-        } else {
-          setBookingDetails({});
-        }
+        const slotsData = slotRes?.data ?? slotRes ?? [];
+        const tList = slotRes?.therapists ?? [];
+        setTherapists(tList);
+        setSlots(Array.isArray(slotsData) ? slotsData : []);
+
+        const bookings = bookingsRes?.data?.data || bookingsRes?.data || [];
+        const list = Array.isArray(bookings) ? bookings : [];
+        setBookingDetails(buildBookingDetailsMap(list));
       })
       .catch((err: any) => {
         if (cancelled) return;
@@ -82,14 +121,14 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     const details = bookingDetails[therapistId];
     if (!details) return null;
     const slotStart = timeToMin(slot.startTime);
-    const slotEnd = slotStart + duration;
+    const slotEnd = slotStart + 15; // Use 15 min slot interval
     for (const b of details) {
       const bStart = timeToMin(b.startTime);
       const bEnd = timeToMin(b.endTime);
       if (slotStart < bEnd && slotEnd > bStart) return b;
     }
     return null;
-  }, [bookingDetails, duration]);
+  }, [bookingDetails]);
 
   const buildRowSegments = useCallback((therapistId: number) => {
     type SegItem = { type: 'avail'; slot: TimeSlot } | { type: 'booked'; booking: BookingDetail; count: number };
@@ -122,6 +161,20 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     return segs;
   }, [slots, getBookingForSlot, showDetails]);
 
+  const getBookingCountForSlot = useCallback((therapistId: number, slot: TimeSlot): number => {
+    const details = bookingDetails[therapistId];
+    if (!details) return 0;
+    const slotStart = timeToMin(slot.startTime);
+    const slotEnd = slotStart + (showDetails ? 60 : 15);
+    let count = 0;
+    for (const b of details) {
+      const bStart = timeToMin(b.startTime);
+      const bEnd = timeToMin(b.endTime);
+      if (slotStart < bEnd && slotEnd > bStart) count++;
+    }
+    return count;
+  }, [bookingDetails, showDetails]);
+
   if (loading) {
     return <div className="text-center py-8 text-black">Loading therapist availability...</div>;
   }
@@ -145,22 +198,26 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     onSelectSlot?.(startTime, therapistId);
   };
 
+  const capacityMode = numberOfPeople > 1;
+
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex-shrink-0 border-r border-gray-200 bg-gray-50" style={{ width: nameColW }}>
-        <div className="h-10 border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
-          Therapist
-        </div>
-        {therapists.map(t => (
-          <div
-            key={t.therapistId}
-            className="flex items-center px-3 border-b border-gray-100 text-sm font-medium text-black"
-            style={{ height: rowH }}
-          >
-            {t.name}
+      {!capacityMode && (
+        <div className="flex-shrink-0 border-r border-gray-200 bg-gray-50" style={{ width: nameColW }}>
+          <div className="h-10 border-b border-gray-200 bg-gray-100 flex items-center px-3 text-xs font-semibold text-black sticky top-0 z-20">
+            Therapist
           </div>
-        ))}
-      </div>
+          {therapists.map(t => (
+            <div
+              key={t.therapistId}
+              className="flex items-center px-3 border-b border-gray-100 text-sm font-medium text-black"
+              style={{ height: rowH }}
+            >
+              {t.name}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div ref={scrollRef} className="overflow-auto flex-1 min-w-0">
         <div style={{ width: slots.length * cellW, minWidth: '100%' }}>
@@ -176,44 +233,64 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
             ))}
           </div>
 
-          {therapists.map(t => {
-            const segments = buildRowSegments(t.therapistId);
-            return (
-              <div key={t.therapistId} className="flex" style={{ height: rowH }}>
-                {segments.map((seg, segIdx) => {
-                  if (seg.type === 'booked') {
-                    const w = seg.count * cellW;
+          {capacityMode ? (
+            <div className="flex" style={{ height: rowH }}>
+              {slots.map(slot => {
+                const enough = slot.availableCapacity >= numberOfPeople;
+                return (
+                  <div key={slot.startTime} className="flex-shrink-0" style={{ width: cellW }}>
+                    <button
+                      disabled={!enough}
+                      onClick={() => enough && handleCellClick(slot.startTime, 0)}
+                      className={`w-full h-full border-r border-b border-gray-100 transition ${
+                        enough
+                          ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
+                          : 'bg-white cursor-default'
+                      }`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            therapists.map(t => {
+              const segments = buildRowSegments(t.therapistId);
+              return (
+                <div key={t.therapistId} className="flex" style={{ height: rowH }}>
+                  {segments.map((seg, segIdx) => {
+                    if (seg.type === 'booked') {
+                      const w = seg.count * cellW;
+                      return (
+                        <div
+                          key={`b-${seg.booking.bookingId}`}
+                          className={`flex-shrink-0 h-full bg-slate-800 text-white flex flex-col justify-center items-start px-1 overflow-hidden border-b border-gray-100 ${
+                            segIdx < segments.length - 1 ? 'border-r border-black' : 'border-r border-gray-100'
+                          }`}
+                          style={{ width: w }}
+                        >
+                          <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(seg.booking.bookingCode)}</span>
+                          <span className="text-[9px] leading-tight text-white/80">{seg.booking.startTime}-{seg.booking.endTime}</span>
+                        </div>
+                      );
+                    }
                     return (
-                      <div
-                        key={`b-${seg.booking.bookingId}`}
-                        className={`flex-shrink-0 h-full bg-slate-800 text-white flex flex-col justify-center items-center px-1 overflow-hidden border-b border-gray-100 ${
-                          segIdx < segments.length - 1 ? 'border-r border-black' : 'border-r border-gray-100'
-                        }`}
-                        style={{ width: w }}
-                      >
-                        <span className="text-[10px] leading-tight font-mono font-semibold">{shortCode(seg.booking.bookingCode)}</span>
-                        <span className="text-[9px] leading-tight text-white/80">{seg.booking.startTime}-{seg.booking.endTime}</span>
-                        <span className="text-[9px] leading-tight text-white/60 truncate w-full text-center">{seg.booking.courseName || ''}</span>
+                      <div key={`a-${seg.slot.startTime}`} className="flex-shrink-0" style={{ width: cellW }}>
+                        <button
+                          disabled={!isAvailable(t.therapistId, seg.slot)}
+                          onClick={() => isAvailable(t.therapistId, seg.slot) && handleCellClick(seg.slot.startTime, t.therapistId)}
+                          className={`w-full h-full border-r border-b border-gray-100 transition ${
+                            isAvailable(t.therapistId, seg.slot)
+                              ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
+                              : 'bg-white cursor-default'
+                          }`}
+                        />
                       </div>
                     );
-                  }
-                  return (
-                    <div key={`a-${seg.slot.startTime}`} className="flex-shrink-0" style={{ width: cellW }}>
-                      <button
-                        disabled={!isAvailable(t.therapistId, seg.slot)}
-                        onClick={() => isAvailable(t.therapistId, seg.slot) && handleCellClick(seg.slot.startTime, t.therapistId)}
-                        className={`w-full h-full border-r border-b border-gray-100 transition ${
-                          isAvailable(t.therapistId, seg.slot)
-                            ? 'bg-green-100 hover:bg-green-200 cursor-pointer'
-                            : 'bg-white cursor-default'
-                        }`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                  })}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>

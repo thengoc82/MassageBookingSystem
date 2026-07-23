@@ -23,6 +23,8 @@ function parseDisplayDate(s: string | null): string {
   } catch { return s; }
 }
 
+function formatPrice(p: number) { return p.toLocaleString() + ' VND'; }
+
 export default function ReservationPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-[#F5F7FA] flex items-center justify-center text-sm text-gray-500">Loading...</div>}>
@@ -39,17 +41,17 @@ function ReservationForm() {
   const initDate = sp.get('date');
   const initTime = sp.get('time') || '12:00';
   const preselectedTherapistId = sp.get('therapistId');
+  const slotDuration = Number(sp.get('duration') || '60');
+  const people = Number(sp.get('people') || '1');
 
   const [shopId] = useState<number>(Number(initShopId) || 0);
   const [courses, setCourses] = useState<ApiCourse[]>([]);
   const [displayDate] = useState(() => parseDisplayDate(initDate));
-  const [selectedTime, setSelectedTime] = useState(initTime);
-  const [timeMin] = useState(() => initTime);
-  const [timeMax] = useState(() => initTime);
+  const [selectedTime] = useState(initTime);
   const [customerType, setCustomerType] = useState<'member' | 'guest'>('member');
   const [phoneNo, setPhoneNo] = useState('');
   const [customerName, setCustomerName] = useState('');
-  const [courseDurations, setCourseDurations] = useState<Record<number, number>>({});
+  const [selectedAddons, setSelectedAddons] = useState<Record<number, number>>({});
   const [options, setOptions] = useState<string[]>([]);
   const [tiredParts, setTiredParts] = useState<string[]>([]);
   const [avoidAreas, setAvoidAreas] = useState<string[]>([]);
@@ -60,14 +62,24 @@ function ReservationForm() {
   const [result, setResult] = useState<{ code: string; name: string } | null>(null);
   const [error, setError] = useState('');
 
-  const mainCourses = useMemo(() => courses.filter(c => c.courseType === 'main'), [courses]);
+  const fbmCourse = useMemo(() => courses.find(c => c.courseName.toLowerCase().includes('full body')), [courses]);
+  const [fbmDuration, setFbmDuration] = useState(0);
 
-  const totalDuration = Object.values(courseDurations).reduce((a, b) => a + b, 0);
-  // Pick first selected main course ID for the API call
-  const selectedMainId = useMemo(() => {
-    const found = mainCourses.find(c => courseDurations[c.courseId]);
-    return found?.courseId;
-  }, [mainCourses, courseDurations]);
+  useEffect(() => {
+    if (!fbmCourse) return;
+    const def = slotDuration >= 30 ? 30 : slotDuration;
+    const match = fbmCourse.durations.find(d => d.duration === def);
+    setFbmDuration(match ? match.duration : (fbmCourse.durations[0]?.duration || 0));
+  }, [fbmCourse, slotDuration]);
+
+  const addonCourses = useMemo(() => courses.filter(c => c.courseId !== fbmCourse?.courseId), [courses, fbmCourse]);
+
+  const selectedTotal = useMemo(() => {
+    let total = fbmDuration;
+    for (const dur of Object.values(selectedAddons)) total += dur;
+    return total;
+  }, [fbmDuration, selectedAddons]);
+  const remaining = slotDuration - selectedTotal;
 
   useEffect(() => {
     if (!shopId) return;
@@ -77,50 +89,76 @@ function ReservationForm() {
     }).catch(() => {});
   }, [shopId]);
 
+  const toggleAddon = (courseId: number, duration: number) => {
+    setSelectedAddons(prev => {
+      if (prev[courseId] === duration) {
+        const next = { ...prev };
+        delete next[courseId];
+        return next;
+      }
+      if (duration > remaining) return prev;
+      return { ...prev, [courseId]: duration };
+    });
+  };
+
   const toggleOption = (o: string) => setOptions(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o]);
   const toggleTired = (p: string) => setTiredParts(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
   const toggleAvoid = (p: string) => setAvoidAreas(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
 
   const handleSubmit = async () => {
-    if (!shopId || !phoneNo || !selectedMainId || !selectedTime || !initDate) {
-      setError('Phone number, course, and time are required');
+    if (!shopId || !phoneNo || !fbmCourse) {
+      setError('Phone number and course are required');
+      return;
+    }
+    if (remaining !== 0) {
+      setError('Please fill the remaining time with additional courses');
       return;
     }
     setSubmitting(true);
     setError('');
 
     try {
+      const services = fbmDuration > 0
+        ? Array.from({ length: people }, (_, i) => ({ personIndex: i + 1, courseId: fbmCourse.courseId }))
+        : [];
+
+      const addOns: { personIndex: number; courseId: number }[] = [];
+      for (const [courseIdStr] of Object.entries(selectedAddons)) {
+        const cid = Number(courseIdStr);
+        for (let i = 0; i < people; i++) {
+          addOns.push({ personIndex: i + 1, courseId: cid });
+        }
+      }
+
       const payload: Record<string, unknown> = {
         phoneNumber: phoneNo,
         shopId,
         bookingDate: initDate,
         startTime: selectedTime,
-        duration: totalDuration || 60,
-        numberOfPeople: 1,
-        courseId: selectedMainId,
-        services: [{ personIndex: 1, courseId: selectedMainId }],
-        addOns: [],
+        duration: slotDuration,
+        numberOfPeople: people,
+        courseId: fbmCourse.courseId,
+        services,
+        addOns,
         customerName: customerName || undefined,
         massageStrength: strength,
         conversationPreference: conversationPref || undefined,
         focusAreas: tiredParts.length > 0 ? tiredParts : undefined,
         avoidAreas: avoidAreas.length > 0 ? avoidAreas : undefined,
         extraOptions: options.length > 0 ? options : undefined,
+        bodyMassageDuration: fbmDuration,
       };
-      if (therapistPref) payload.therapistPreferenceType = therapistPref === 'No Preference' ? 'no_preference' : therapistPref.toLowerCase().includes('male') ? 'gender' : therapistPref.toLowerCase().includes('female') ? 'gender' : undefined;
-      if (therapistPref?.toLowerCase().includes('male')) payload.therapistPreferenceValue = 'Male';
-      if (therapistPref?.toLowerCase().includes('female')) payload.therapistPreferenceValue = 'Female';
-      if (preselectedTherapistId) {
+
+      if (preselectedTherapistId && people === 1) {
         payload.therapistPreferenceType = 'specific';
         payload.therapistPreferenceValue = preselectedTherapistId;
       }
 
-      const res = await api.bookings.create(payload) as { data?: { bookingCode?: string; therapistName?: string }; bookingCode?: string; therapistName?: string };
+      const res = await api.bookings.create(payload) as any;
       const data = res.data || res;
-      // Track booking so dashboard shows it as unavailable
       try {
         const recent = JSON.parse(localStorage.getItem('recentBookings') || '[]');
-        recent.push({ shopId, date: initDate, startTime: selectedTime, duration: totalDuration || 60 });
+        recent.push({ shopId, date: initDate, startTime: selectedTime, duration: slotDuration });
         localStorage.setItem('recentBookings', JSON.stringify(recent.slice(-20)));
       } catch { /* ignore */ }
       setResult({ code: data.bookingCode || '', name: data.therapistName || '' });
@@ -152,11 +190,13 @@ function ReservationForm() {
     );
   }
 
+  const remainingColor = remaining === 0 ? 'text-green-600' : remaining < 0 ? 'text-red-600' : 'text-amber-600';
+
   return (
     <div className="min-h-screen bg-[#F5F7FA]">
       <div className="max-w-7xl mx-auto p-4 space-y-4">
 
-        {/* Row 1: Date + Time — time is fixed to the selected slot (read-only) */}
+        {/* Row 1: Date + Time */}
         <div className="bg-white rounded-lg border border-gray-200 p-4 flex gap-8 items-center">
           <div>
             <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Date</label>
@@ -166,6 +206,16 @@ function ReservationForm() {
           <div>
             <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Time</label>
             <div className="text-base font-semibold text-gray-900 mt-0.5">{selectedTime}</div>
+          </div>
+          <div className="w-px h-8 bg-gray-200" />
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Slot</label>
+            <div className="text-base font-semibold text-gray-900 mt-0.5">{slotDuration} min</div>
+          </div>
+          <div className="w-px h-8 bg-gray-200" />
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Guests</label>
+            <div className="text-base font-semibold text-gray-900 mt-0.5">{people} {people > 1 ? 'people' : 'person'}</div>
           </div>
         </div>
 
@@ -207,65 +257,73 @@ function ReservationForm() {
           </div>
         </div>
 
-        {/* Reservation status */}
-        <div className="flex items-center gap-4 flex-wrap">
-          <span className={`text-xs px-3 py-1 rounded-full font-medium ${phoneNo ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
-            {phoneNo ? 'Reservation Possible' : 'Enter phone number'}
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {MEMBERSHIPS.map(m => (
-              <span key={m} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${m === 'Non-member' ? 'border-gray-300 text-gray-500 bg-gray-50' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>{m}</span>
+        {/* Course selection */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <h3 className="text-xs font-semibold text-gray-900 mb-3">Select Courses</h3>
+
+          {/* FBM main course */}
+          {fbmCourse && (
+            <div className="border border-[#031050] rounded-lg p-3 mb-4 bg-blue-50">
+              <div className="text-xs font-semibold text-gray-900">{fbmCourse.courseName} <span className="font-normal text-gray-500">(main)</span></div>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {fbmCourse.durations.map(d => {
+                  const sel = fbmDuration === d.duration;
+                  return (
+                    <button key={d.duration} onClick={() => setFbmDuration(d.duration)}
+                      className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
+                        sel
+                          ? 'bg-[#031050] text-white border-[#031050]'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
+                      }`}>
+                      {d.duration} min
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-[10px] text-gray-400 mt-1">{people} {people > 1 ? 'people' : 'person'}</div>
+            </div>
+          )}
+
+          {/* Addon courses */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            {addonCourses.map(c => (
+              <div key={c.courseId}>
+                <div className="text-xs font-semibold text-gray-800 mb-1.5">{c.courseName}</div>
+                <div className="flex flex-wrap gap-1">
+                  {(c.durations || []).map((d: any) => {
+                    const sel = selectedAddons[c.courseId] === d.duration;
+                    const over = d.duration > remaining && !sel;
+                    return (
+                      <button key={d.duration}
+                        onClick={() => toggleAddon(c.courseId, d.duration)}
+                        disabled={over}
+                        className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
+                          sel
+                            ? 'bg-[#031050] text-white border-[#031050]'
+                            : over
+                              ? 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
+                        }`}>
+                        {d.duration > 0 ? `${d.duration} min` : 'Add'} · {formatPrice(d.price)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
           </div>
         </div>
 
-        {/* Summary + Course section */}
-        <div className="flex gap-4">
-          <div className="w-80 shrink-0">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <h3 className="text-xs font-semibold text-gray-900 mb-3">Selected Course</h3>
-              <div className="space-y-1.5 text-xs">
-                {mainCourses.map(c => {
-                  const dur = courseDurations[c.courseId];
-                  if (!dur) return null;
-                  return <div key={c.courseId} className="flex justify-between text-gray-700"><span>{c.courseName}</span><span className="font-semibold">{dur} min</span></div>;
-                })}
-                {Object.keys(courseDurations).length === 0 && <div className="text-gray-400 italic">No courses selected</div>}
-              </div>
-              <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between text-sm font-bold text-[#031050]">
-                <span>Total</span>
-                <span>{totalDuration || 60} minutes</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <h3 className="text-xs font-semibold text-gray-900 mb-3">Choose Course & Duration</h3>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                {mainCourses.map(c => (
-                  <div key={c.courseId}>
-                    <div className="text-xs font-semibold text-gray-800 mb-1.5">{c.courseName}</div>
-                    <div className="flex flex-wrap gap-1">
-                      {(c.durations || []).map((d: any) => (
-                        <button key={d.duration} onClick={() => setCourseDurations(p => ({ ...p, [c.courseId]: p[c.courseId] === d.duration ? 0 : d.duration }))}
-                          className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
-                            courseDurations[c.courseId] === d.duration
-                              ? 'bg-[#031050] text-white border-[#031050]'
-                              : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
-                          }`}>
-                          {d.duration} min
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        {/* Remaining counter */}
+        <div className={`sticky top-4 bg-white rounded-lg border p-4 text-center shadow-md z-10 ${remainingColor}`}>
+          <span className="text-sm font-bold">
+            Remaining: {remaining} min
+            {remaining === 0 && ' ✓'}
+            {remaining < 0 && ' (overbooked!)'}
+          </span>
         </div>
 
-        {/* 2x4 Grid */}
+        {/* 2x4 Grid (options/preferences) */}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <h3 className="text-xs font-semibold text-gray-900 mb-2">Options</h3>
@@ -302,7 +360,11 @@ function ReservationForm() {
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <h3 className="text-xs font-semibold text-gray-900 mb-2">Therapist Preference</h3>
-            {preselectedTherapistId ? (
+            {people > 1 ? (
+              <div className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5">
+                <span className="text-xs text-gray-600">Therapists will be auto-assigned for group bookings</span>
+              </div>
+            ) : preselectedTherapistId ? (
               <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
                 <span className="text-xs text-emerald-800 font-medium">Locked to selected therapist (#{preselectedTherapistId})</span>
               </div>
@@ -347,9 +409,9 @@ function ReservationForm() {
         <button onClick={() => router.push('/dashboard')} className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2">Back</button>
         <span className="text-xs text-gray-600 font-mono">#RSV-{initDate?.replace(/-/g, '') || '00000000'}-001</span>
         <div className="flex-1" />
-        <button onClick={handleSubmit} disabled={submitting || !phoneNo || !selectedMainId}
+        <button onClick={handleSubmit} disabled={submitting || !phoneNo || !fbmCourse || remaining !== 0}
           className="px-6 py-1.5 bg-[#031050] text-white text-xs font-semibold rounded hover:bg-[#1a2a6b] shadow-sm disabled:bg-gray-300 disabled:cursor-not-allowed">
-          {submitting ? 'Booking...' : 'Register Reservation'}
+          {submitting ? 'Booking...' : remaining !== 0 ? `Fill remaining ${remaining} min` : 'Register Reservation'}
         </button>
       </div>
     </div>

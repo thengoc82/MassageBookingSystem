@@ -32,17 +32,25 @@ def get_my_bookings():
 
     bookings = query.order_by(Booking.booking_date, Booking.start_time).all()
 
-    data = [{
-        'bookingId': b.id,
-        'bookingCode': b.booking_code,
-        'shopId': b.shop_id,
-        'phoneNumber': b.phone_number,
-        'bookingDate': b.booking_date.strftime('%Y-%m-%d'),
-        'startTime': b.start_time.strftime('%H:%M'),
-        'endTime': b.end_time.strftime('%H:%M'),
-        'numberOfPeople': b.number_of_people,
-        'status': b.status
-    } for b in bookings]
+    data = []
+    for b in bookings:
+        assignments = [{
+            'personIndex': bt.person_index,
+            'therapistId': bt.therapist.id,
+            'therapistName': bt.therapist.name
+        } for bt in b.booking_therapists]
+        data.append({
+            'bookingId': b.id,
+            'bookingCode': b.booking_code,
+            'shopId': b.shop_id,
+            'phoneNumber': b.phone_number,
+            'bookingDate': b.booking_date.strftime('%Y-%m-%d'),
+            'startTime': b.start_time.strftime('%H:%M'),
+            'endTime': b.end_time.strftime('%H:%M'),
+            'numberOfPeople': b.number_of_people,
+            'status': b.status,
+            'therapistAssignments': assignments
+        })
 
     return success_response(data)
 

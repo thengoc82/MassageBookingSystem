@@ -76,3 +76,58 @@ def create_course(shop_id):
         'durations': course.get_durations(),
         'courseType': course.course_type
     }, message='Course created', status_code=201)
+
+
+@admin_bp.route('/shops/<int:shop_id>/courses/<int:course_id>', methods=['PATCH'])
+@role_required('admin')
+def update_course(shop_id, course_id):
+    course = Course.query.filter_by(id=course_id, shop_id=shop_id).first()
+    if not course:
+        raise ResourceNotFound('Course')
+
+    data = request.get_json()
+
+    if 'courseName' in data:
+        course.name = data['courseName']
+
+    if 'durations' in data:
+        durations = data['durations']
+        if not isinstance(durations, list) or len(durations) == 0:
+            raise ValidationError('durations must be a non-empty array')
+        for entry in durations:
+            if entry.get('duration', 0) <= 0:
+                raise ValidationError('each duration must be greater than 0')
+            if entry.get('price', -1) < 0:
+                raise ValidationError('each price must be 0 or greater')
+        course.set_durations(durations)
+
+    if 'courseType' in data:
+        if data['courseType'] not in ['main', 'addon']:
+            raise ValidationError('courseType must be main or addon')
+        course.course_type = data['courseType']
+
+    if 'status' in data:
+        course.status = data['status']
+
+    db.session.commit()
+
+    return success_response({
+        'courseId': course.id,
+        'courseName': course.name,
+        'durations': course.get_durations(),
+        'courseType': course.course_type,
+        'status': course.status
+    }, message='Course updated')
+
+
+@admin_bp.route('/shops/<int:shop_id>/courses/<int:course_id>', methods=['DELETE'])
+@role_required('admin')
+def delete_course(shop_id, course_id):
+    course = Course.query.filter_by(id=course_id, shop_id=shop_id).first()
+    if not course:
+        raise ResourceNotFound('Course')
+
+    course.status = 'inactive'
+    db.session.commit()
+
+    return success_response({'courseId': course.id}, message='Course deactivated')

@@ -9,10 +9,19 @@ def create_booking():
     data = request.get_json()
     booking = BookingService.create(data)
     
+    therapist_assignments = [{
+        'personIndex': bt.person_index,
+        'therapistId': bt.therapist.id,
+        'therapistName': bt.therapist.name
+    } for bt in booking.booking_therapists]
+    
     return success_response({
         'bookingId': booking.id,
         'bookingCode': booking.booking_code,
-        'status': booking.status
+        'status': booking.status,
+        'therapistId': booking.therapist_id,
+        'therapistName': booking.therapist.name if booking.therapist else None,
+        'therapistAssignments': therapist_assignments
     }, message='Booking created successfully', status_code=201)
 
 @bookings_bp.route('', methods=['GET'])
@@ -39,6 +48,12 @@ def get_booking(booking_id):
         raise ResourceNotFound('Booking')
     
     return success_response(booking)
+
+@bookings_bp.route('/all')
+def get_all_bookings():
+    filters = {}
+    result = BookingService.get_bookings(filters)
+    return success_response(result)
 
 @bookings_bp.route('/<int:booking_id>', methods=['PATCH'])
 def update_booking(booking_id):

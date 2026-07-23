@@ -2,7 +2,7 @@ import json
 import random
 import string
 from datetime import datetime, timedelta
-from app.models.booking import Booking, BookingService as BookingServiceModel, BookingAddon
+from app.models.booking import Booking, BookingService as BookingServiceModel, BookingAddon, BookingTherapist
 from app.models.therapist import Therapist
 from app.services.customer_service import CustomerService
 from app.extensions import db
@@ -39,9 +39,9 @@ class BookingService:
         therapist_preference_value = data.get('therapistPreferenceValue')
 
         try:
-            db.session.begin_nested()
 
             assigned_therapist = None
+            assigned_therapists = []
 
             if number_of_people == 1 and therapist_preference_type == 'specific' and therapist_preference_value:
                 try:
@@ -59,6 +59,7 @@ class BookingService:
                         raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'Requested therapist is no longer available at this time')
 
                     assigned_therapist = therapist
+                    assigned_therapists.append((1, therapist))
 
                 except ValueError:
                     raise ValidationError('Invalid therapist ID')
@@ -71,24 +72,33 @@ class BookingService:
                 if not therapist:
                     raise BusinessRuleViolation('SLOT_UNAVAILABLE', f'No {therapist_preference_value} therapist available at this time')
                 assigned_therapist = therapist
+                assigned_therapists.append((1, therapist))
 
             elif number_of_people == 1 and (not therapist_preference_type or therapist_preference_type == 'no_preference'):
                 therapist = BookingService._lock_least_loaded_therapist(
                     shop_id, booking_date, start_time, end_time
                 )
                 assigned_therapist = therapist
+                if therapist:
+                    assigned_therapists.append((1, therapist))
 
             else:
-                for i in range(number_of_people):
-                    therapist = BookingService._lock_least_loaded_therapist(
-                        shop_id, booking_date, start_time, end_time
-                    )
-                    if not therapist:
-                        available = BookingService._count_available_therapists(
-                            shop_id, booking_date, start_time, end_time
-                        )
-                        raise BusinessRuleViolation('INSUFFICIENT_THERAPISTS',
-                            f'Need {number_of_people} therapists, only {available} available')
+                # For multi-person bookings (2-3), use random assignment without replacement
+                # Slot search has already guaranteed enough available therapists
+                available_therapists = BookingService._get_available_therapists_for_slot(
+                    shop_id, booking_date, start_time, end_time
+                )
+
+                if len(available_therapists) < number_of_people:
+                    raise BusinessRuleViolation('INSUFFICIENT_THERAPISTS',
+                        f'Need {number_of_people} therapists, only {len(available_therapists)} available')
+
+                # Randomly select groupSize therapists without replacement
+                selected_therapists = random.sample(available_therapists, number_of_people)
+
+                # Assign each therapist to a person (1-indexed)
+                for person_idx, therapist in enumerate(selected_therapists, start=1):
+                    assigned_therapists.append((person_idx, therapist))
                     if assigned_therapist is None:
                         assigned_therapist = therapist
 
@@ -111,6 +121,14 @@ class BookingService:
 
             db.session.add(booking)
             db.session.flush()
+
+            for person_idx, therapist in assigned_therapists:
+                bt = BookingTherapist(
+                    booking_id=booking.id,
+                    person_index=person_idx,
+                    therapist_id=therapist.id
+                )
+                db.session.add(bt)
 
             if not data.get('services'):
                 course_id = data.get('courseId')
@@ -150,7 +168,6 @@ class BookingService:
                 raise BusinessRuleViolation('POS_ERROR', pos_result.get('message', 'POS integration failed'))
 
             db.session.commit()
-
             return booking
 
         except (BusinessRuleViolation, ValidationError, ResourceNotFound) as e:
@@ -222,12 +239,12 @@ class BookingService:
         return therapist.Therapist
 
     @staticmethod
-    def _count_available_therapists(shop_id, date, start_time, end_time):
+    def _get_available_therapists_for_slot(shop_id, date, start_time, end_time):
         from app.models.therapist_shift import TherapistShift
         day_of_week = date.strftime('%A')
 
         all_therapists = Therapist.query.filter_by(shop_id=shop_id, status='active').all()
-        available = 0
+        available = []
 
         for therapist in all_therapists:
             shift = TherapistShift.query.filter(
@@ -242,9 +259,13 @@ class BookingService:
                 continue
 
             if BookingService._is_therapist_free(therapist.id, date, start_time, end_time):
-                available += 1
+                available.append(therapist)
 
         return available
+
+    @staticmethod
+    def _count_available_therapists(shop_id, date, start_time, end_time):
+        return len(BookingService._get_available_therapists_for_slot(shop_id, date, start_time, end_time))
 
     @staticmethod
     def _is_therapist_free(therapist_id, date, start_time, end_time):
@@ -258,6 +279,20 @@ class BookingService:
         ).count()
 
         if overlapping > 0:
+            return False
+
+        overlapping_bt = db.session.query(BookingTherapist).join(
+            Booking, Booking.id == BookingTherapist.booking_id
+        ).filter(
+            BookingTherapist.therapist_id == therapist_id,
+            Booking.booking_date == date,
+            Booking.status.in_(['Booked', 'CheckedIn']),
+            db.or_(
+                db.and_(Booking.start_time < end_time, Booking.end_time > start_time)
+            )
+        ).count()
+
+        if overlapping_bt > 0:
             return False
 
         return True
@@ -403,6 +438,16 @@ class BookingService:
         if booking.therapist:
             result['therapistId'] = booking.therapist.id
             result['therapistName'] = booking.therapist.name
+
+        therapist_assignments = []
+        for bt in booking.booking_therapists:
+            therapist_assignments.append({
+                'personIndex': bt.person_index,
+                'therapistId': bt.therapist.id,
+                'therapistName': bt.therapist.name,
+            })
+        if therapist_assignments:
+            result['therapistAssignments'] = therapist_assignments
 
         if detailed:
             result['services'] = [{

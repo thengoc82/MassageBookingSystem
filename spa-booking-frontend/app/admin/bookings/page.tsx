@@ -81,8 +81,22 @@ function AdminBookings() {
                 >
                   <div className="font-semibold text-gray-900">#{b.bookingCode}</div>
                   <div className="text-sm text-gray-600">
-                    {b.bookingDate} · {b.startTime}–{b.endTime} · {b.phoneNumber}
+                    {b.bookingDate} · {b.startTime}–{b.endTime} · {b.phoneNumber} · {b.numberOfPeople} {b.numberOfPeople > 1 ? 'people' : 'person'}
                   </div>
+                  {b.therapistAssignments && b.therapistAssignments.length > 1 ? (
+                    <div className="text-xs text-gray-500 mt-1">
+                      {b.therapistAssignments
+                        .slice()
+                        .sort((a: any, c: any) => a.personIndex - c.personIndex)
+                        .map((ta: any, i: number) => (
+                          <span key={ta.therapistId}>
+                            P{ta.personIndex}: {ta.therapistName}{i < b.therapistAssignments.length - 1 ? ' · ' : ''}
+                          </span>
+                        ))}
+                    </div>
+                  ) : b.therapistName ? (
+                    <div className="text-xs text-gray-500 mt-1">Therapist: {b.therapistName}</div>
+                  ) : null}
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs mr-3 ${getStatusColor(b.status)}`}>{b.status}</span>
                 <div className="flex gap-2">

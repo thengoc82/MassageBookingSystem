@@ -31,6 +31,7 @@ export default function BookingConfirmPage() {
   const [error, setError] = useState<string | null>(null);
   const [bookingCode, setBookingCode] = useState('');
   const [assignedTherapistName, setAssignedTherapistName] = useState('');
+  const [therapistAssignments, setTherapistAssignments] = useState<{ personIndex: number; therapistId: number; therapistName: string }[]>([]);
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [alternativeSlots, setAlternativeSlots] = useState<TimeSlot[]>([]);
   const [shopOpenTime, setShopOpenTime] = useState('09:00');
@@ -216,12 +217,14 @@ export default function BookingConfirmPage() {
         payload.therapistPreferenceValue = therapistPref === 'specific' ? 'specific' : therapistPref;
       }
 
-      const result = await api.bookings.create(payload) as { data?: { bookingCode?: string; therapistName?: string }; bookingCode?: string; therapistName?: string };
+      const result = await api.bookings.create(payload) as { data?: { bookingCode?: string; therapistName?: string; therapistAssignments?: { personIndex: number; therapistId: number; therapistName: string }[] }; bookingCode?: string; therapistName?: string; therapistAssignments?: { personIndex: number; therapistId: number; therapistName: string }[] };
       const code = result.data?.bookingCode || result.bookingCode || '';
       const therapistName = result.data?.therapistName || result.therapistName || '';
+      const assignments = result.data?.therapistAssignments || result.therapistAssignments || [];
 
       setBookingCode(code);
       if (therapistName) setAssignedTherapistName(therapistName);
+      if (assignments && assignments.length > 0) setTherapistAssignments(assignments);
       localStorage.removeItem('pending_booking');
     } catch (err: any) {
       if (err.code === 'SLOT_UNAVAILABLE' || err.code === 'INSUFFICIENT_THERAPISTS') {
@@ -266,9 +269,24 @@ export default function BookingConfirmPage() {
               <div className="flex justify-between"><span className="text-black">Duration</span><span className="font-medium text-black">{totalMinutes || bookingData.duration} min</span></div>
               <div className="flex justify-between"><span className="text-black">Course</span><span className="font-medium text-black">{courseName}</span></div>
               <div className="flex justify-between"><span className="text-black">Price</span><span className="font-medium text-black">{formatPrice(coursePrice)}</span></div>
-              {assignedTherapistName && (
+              {therapistAssignments.length > 1 ? (
+                <div className="border-t border-gray-200 pt-2 mt-2">
+                  <div className="text-black font-semibold mb-1">Assigned Therapists</div>
+                  <div className="space-y-0.5">
+                    {therapistAssignments
+                      .slice()
+                      .sort((a, b) => a.personIndex - b.personIndex)
+                      .map(ta => (
+                        <div key={ta.therapistId} className="flex justify-between text-xs">
+                          <span className="text-black">Person {ta.personIndex}</span>
+                          <span className="font-medium text-black">{ta.therapistName}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : assignedTherapistName ? (
                 <div className="flex justify-between"><span className="text-black">Therapist</span><span className="font-medium text-black">{assignedTherapistName}</span></div>
-              )}
+              ) : null}
             </div>
 
             <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg mb-6 text-sm text-yellow-800">

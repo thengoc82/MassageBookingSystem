@@ -24,6 +24,7 @@ function AdminDashboard() {
   const [shopId, setShopId] = useState<number | ''>('');
   const [date, setDate] = useState(today);
   const [bookings, setBookings] = useState<any[]>([]);
+  const [selectedBooking, setSelectedBooking] = useState<any>(null);
 
   useEffect(() => {
     api.admin.getShops().then(res => {
@@ -67,7 +68,7 @@ function AdminDashboard() {
             <TherapistGantt
               shopId={Number(shopId)}
               date={date}
-              duration={60}
+              duration={15}
               numberOfPeople={1}
               showDetails={true}
             />
