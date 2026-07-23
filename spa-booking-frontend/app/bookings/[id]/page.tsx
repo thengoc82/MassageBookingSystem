@@ -102,7 +102,22 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
           <DetailRow label="Date" value={booking.bookingDate} />
           <DetailRow label="Time" value={`${formatTime(booking.startTime)} - ${formatTime(booking.endTime)}`} />
           <DetailRow label="Guests" value={booking.numberOfPeople} />
-          <DetailRow label="Therapist" value={booking.therapistName} />
+          {booking.therapistAssignments && booking.therapistAssignments.length > 1 ? (
+            <div className="flex gap-4 py-1.5">
+              <span className="w-36 shrink-0 text-sm text-gray-500">Therapists</span>
+              <div className="text-sm font-medium text-gray-900 space-y-0.5">
+                {booking.therapistAssignments
+                  .sort((a, b) => a.personIndex - b.personIndex)
+                  .map(ta => (
+                    <div key={ta.therapistId}>
+                      Person {ta.personIndex}: {ta.therapistName}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : (
+            <DetailRow label="Therapist" value={booking.therapistName} />
+          )}
         </div>
 
         {/* Services */}

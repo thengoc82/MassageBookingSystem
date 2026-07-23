@@ -93,7 +93,7 @@ def test_available_therapists_returns_200(client, sample_shop, sample_therapists
 def test_get_available_slots_returns_capacity(client, sample_shop, sample_therapists):
     """GET /api/shops/{id}/available-slots should return slots with correct capacity."""
     resp = client.get(f'/api/shops/{sample_shop.id}/available-slots', query_string={
-        'date': '2026-07-20',
+        'date': '2026-07-30',
         'duration': 60,
         'numberOfPeople': 2
     })
@@ -108,7 +108,7 @@ def test_get_available_slots_returns_capacity(client, sample_shop, sample_therap
 def test_get_available_slots_with_therapists(client, sample_shop, sample_therapists):
     """GET /api/shops/{id}/available-slots?show_therapists=true returns all slots with therapist-level availability."""
     resp = client.get(f'/api/shops/{sample_shop.id}/available-slots', query_string={
-        'date': '2026-07-20',
+        'date': '2026-07-30',
         'duration': 60,
         'numberOfPeople': 1,
         'show_therapists': 'true'

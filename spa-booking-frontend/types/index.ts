@@ -59,9 +59,16 @@ export interface Booking {
   status: 'Booked' | 'CheckedIn' | 'CheckedOut' | 'Cancelled';
   therapistId?: number;
   therapistName?: string;
+  therapistAssignments?: TherapistAssignment[];
   services?: BookingServiceDetail[];
   addOns?: BookingServiceDetail[];
   preferences?: Record<string, unknown>;
+}
+
+export interface TherapistAssignment {
+  personIndex: number;
+  therapistId: number;
+  therapistName: string;
 }
 
 export interface BookingServiceDetail {

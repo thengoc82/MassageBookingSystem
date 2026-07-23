@@ -1,7 +1,7 @@
 from datetime import datetime, time, timedelta
 from app.models.therapist import Therapist
 from app.models.therapist_shift import TherapistShift
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingTherapist
 from app.extensions import db
 from app.utils.errors import BusinessRuleViolation
 
@@ -53,8 +53,10 @@ class TherapistService:
         if not TherapistService._has_shift_coverage(therapist_id, date, start_time, end_time):
             return False
 
-        overlapping_bookings = Booking.query.filter(
-            Booking.therapist_id == therapist_id,
+        overlapping_bookings = db.session.query(BookingTherapist).join(
+            Booking, Booking.id == BookingTherapist.booking_id
+        ).filter(
+            BookingTherapist.therapist_id == therapist_id,
             Booking.booking_date == date,
             Booking.status.in_(['Booked', 'CheckedIn']),
             db.or_(

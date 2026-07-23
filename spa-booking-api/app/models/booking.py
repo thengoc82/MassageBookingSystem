@@ -27,6 +27,7 @@ class Booking(db.Model):
     therapist = db.relationship('Therapist', back_populates='bookings')
     services = db.relationship('BookingService', back_populates='booking', cascade='all, delete-orphan')
     addons = db.relationship('BookingAddon', back_populates='booking', cascade='all, delete-orphan')
+    booking_therapists = db.relationship('BookingTherapist', back_populates='booking', cascade='all, delete-orphan')
     
     __table_args__ = (
         db.CheckConstraint('number_of_people > 0', name='check_number_of_people'),
@@ -64,4 +65,19 @@ class BookingAddon(db.Model):
     
     __table_args__ = (
         db.CheckConstraint('person_index > 0', name='check_addon_person_index'),
+    )
+
+class BookingTherapist(db.Model):
+    __tablename__ = 'booking_therapists'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id', ondelete='CASCADE'), nullable=False, index=True)
+    person_index = db.Column(db.Integer, nullable=False)
+    therapist_id = db.Column(db.Integer, db.ForeignKey('therapists.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    booking = db.relationship('Booking', back_populates='booking_therapists')
+    therapist = db.relationship('Therapist')
+    
+    __table_args__ = (
+        db.UniqueConstraint('booking_id', 'person_index', name='uq_booking_person'),
     )
