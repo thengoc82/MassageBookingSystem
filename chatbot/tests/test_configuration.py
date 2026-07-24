@@ -1,6 +1,8 @@
 """Tests for Phase 0 — Configuration"""
 import os
+
 from app.config import Settings
+
 
 def test_settings_defaults():
     settings = Settings()
