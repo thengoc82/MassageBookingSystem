@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["success", "data", "message"],
+  "properties": {
+    "success": {"type": "boolean"},
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shopId", "shopName", "address", "phoneNumber", "status", "openTime", "closeTime"],
+        "properties": {
+          "shopId": {"type": "integer"},
+          "shopName": {"type": "string"},
+          "address": {"type": "string"},
+          "phoneNumber": {"type": "string"},
+          "status": {"type": "string", "enum": ["Open", "Closed"]},
+          "openTime": {"type": "string", "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"},
+          "closeTime": {"type": "string", "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"}
+        }
+      }
+    },
+    "message": {"type": "string"}
+  }
+}

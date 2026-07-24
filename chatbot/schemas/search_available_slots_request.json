@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["shopId", "date", "duration", "numberOfPeople"],
+  "properties": {
+    "shopId": {"type": "integer", "minimum": 1},
+    "date": {"type": "string", "format": "date"},
+    "startTime": {"type": "string", "format": "time"},
+    "duration": {"type": "integer", "minimum": 1},
+    "numberOfPeople": {"type": "integer", "minimum": 1},
+    "courseIds": {"type": "string"},
+    "gender": {"type": "string", "enum": ["Male", "Female"]},
+    "showTherapists": {"type": "boolean", "default": false}
+  }
+}

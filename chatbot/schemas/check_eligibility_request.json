@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["phoneNumber"],
+  "properties": {
+    "phoneNumber": {"type": "string", "pattern": "^0\\d{9,10}$"}
+  }
+}

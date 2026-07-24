@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["success", "data", "message"],
+  "properties": {
+    "success": {"type": "boolean"},
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["therapistId", "name", "gender", "isAvailable"],
+        "properties": {
+          "therapistId": {"type": "integer"},
+          "name": {"type": "string"},
+          "gender": {"type": "string", "enum": ["Male", "Female"]},
+          "isAvailable": {"type": "boolean"}
+        }
+      }
+    },
+    "message": {"type": "string"}
+  }
+}

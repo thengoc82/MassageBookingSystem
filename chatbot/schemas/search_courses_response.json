@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["success", "data", "message"],
+  "properties": {
+    "success": {"type": "boolean"},
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["courseId", "courseName", "duration", "price", "courseType", "status"],
+        "properties": {
+          "courseId": {"type": "integer"},
+          "courseName": {"type": "string"},
+          "duration": {"type": "integer", "minimum": 1},
+          "price": {"type": "integer", "minimum": 0},
+          "courseType": {"type": "string", "enum": ["main", "addon"]},
+          "status": {"type": "string", "enum": ["Active", "Inactive"]}
+        }
+      }
+    },
+    "message": {"type": "string"}
+  }
+}

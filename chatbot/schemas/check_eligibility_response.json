@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["success", "data", "message"],
+  "properties": {
+    "success": {"type": "boolean"},
+    "data": {
+      "type": "object",
+      "required": ["customerId", "isEligible", "memberRank", "visitCount", "isBlocked"],
+      "properties": {
+        "customerId": {"type": "integer"},
+        "isEligible": {"type": "boolean"},
+        "memberRank": {"type": "string", "enum": ["Silver", "Gold", "Platinum"]},
+        "visitCount": {"type": "integer", "minimum": 0},
+        "isBlocked": {"type": "boolean"},
+        "blockReason": {"type": "string"}
+      }
+    },
+    "message": {"type": "string"}
+  }
+}
