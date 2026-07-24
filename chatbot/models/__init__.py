@@ -1,0 +1,172 @@
+from datetime import date, time
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# SearchShops
+class SearchShopsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ShopInfo(BaseModel):
+    shopId: int
+    shopName: str
+    address: str
+    phoneNumber: str
+    status: str
+    openTime: time
+    closeTime: time
+
+
+class SearchShopsResponse(BaseModel):
+    success: bool
+    data: list[ShopInfo]
+    message: str
+
+
+# SearchCourses
+class SearchCoursesRequest(BaseModel):
+    shopId: int
+    type: str | None = Field(default=None, pattern="^(main|addon)$")
+
+
+class CourseInfo(BaseModel):
+    courseId: int
+    courseName: str
+    duration: int
+    price: int
+    courseType: str
+    status: str
+
+
+class SearchCoursesResponse(BaseModel):
+    success: bool
+    data: list[CourseInfo]
+    message: str
+
+
+# SearchAvailableSlots
+class SearchAvailableSlotsRequest(BaseModel):
+    shopId: int
+    date: date
+    duration: int = Field(ge=1)
+    numberOfPeople: int = Field(ge=1)
+    startTime: time | None = None
+    courseIds: str | None = None
+    gender: str | None = Field(default=None, pattern="^(Male|Female)$")
+    showTherapists: bool = False
+
+
+class SlotInfo(BaseModel):
+    startTime: time
+    endTime: time
+    availableCapacity: int
+    availableTherapistIds: list[int] | None = None
+
+
+class TherapistInfo(BaseModel):
+    therapistId: int
+    name: str
+    gender: str
+
+
+class SearchAvailableSlotsResponse(BaseModel):
+    success: bool
+    data: list[SlotInfo]
+    message: str
+    therapists: list[TherapistInfo] | None = None
+
+
+# GetTherapists
+class GetTherapistsRequest(BaseModel):
+    shopId: int
+    date: date
+    startTime: time
+    duration: int = Field(default=60, ge=1)
+    gender: str | None = Field(default=None, pattern="^(Male|Female)$")
+
+
+class GetTherapistsResponse(BaseModel):
+    success: bool
+    data: list[TherapistInfo]
+    message: str
+
+
+# LookupBooking
+class LookupBookingRequest(BaseModel):
+    bookingCode: str | None = None
+    phoneNumber: str | None = None
+
+
+class BookingService(BaseModel):
+    personIndex: int
+    courseId: int
+    courseName: str | None = None
+
+
+class BookingAddOn(BaseModel):
+    personIndex: int
+    courseId: int
+    courseName: str | None = None
+
+
+class BookingInfo(BaseModel):
+    bookingId: int
+    bookingCode: str
+    shopId: int
+    shopName: str
+    phoneNumber: str
+    bookingDate: date
+    startTime: time
+    numberOfPeople: int
+    status: str
+    services: list[BookingService]
+    addOns: list[BookingAddOn]
+    therapistId: int | None = None
+    therapistName: str | None = None
+
+
+class LookupBookingResponse(BaseModel):
+    success: bool
+    data: list[BookingInfo]
+    message: str
+    pagination: dict | None = None
+
+
+# CheckEligibility
+class CheckEligibilityRequest(BaseModel):
+    phoneNumber: str = Field(pattern=r"^\d{9,11}$")
+
+
+class EligibilityInfo(BaseModel):
+    customerId: int | None = None
+    isEligible: bool
+    memberRank: str | None = None
+    visitCount: int = 0
+    isBlocked: bool = False
+    blockReason: str | None = None
+
+
+class CheckEligibilityResponse(BaseModel):
+    success: bool
+    data: EligibilityInfo
+    message: str
+
+
+# FAQ Search
+class FAQSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    topK: int = Field(default=5, ge=1, le=20)
+
+
+class FAQItem(BaseModel):
+    question: str
+    answer: str
+    category: str | None = None
+    score: float | None = None
+
+
+class FAQSearchResponse(BaseModel):
+    success: bool
+    data: list[FAQItem]
+    message: str

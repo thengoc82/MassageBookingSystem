@@ -1,10 +1,13 @@
 """Tests for Phase 0 — Interfaces"""
 import pytest
-from app.interfaces import ToolInterface
+
 from tools.base import BaseTool
 
 
 class TestTool(BaseTool):
+    def __init__(self):
+        super().__init__("test_tool")
+
     async def execute(self, request: dict) -> dict:
         return {"result": "test"}
 
