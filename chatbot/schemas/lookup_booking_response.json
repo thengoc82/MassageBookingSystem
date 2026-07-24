@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["success", "data", "message"],
+  "properties": {
+    "success": {"type": "boolean"},
+    "data": {
+      "type": "object",
+      "required": ["bookingId", "bookingCode", "shopId", "shopName", "phoneNumber", "bookingDate", "startTime", "numberOfPeople", "status", "services"],
+      "properties": {
+        "bookingId": {"type": "integer"},
+        "bookingCode": {"type": "string", "pattern": "^BK\\d{12}$"},
+        "shopId": {"type": "integer"},
+        "shopName": {"type": "string"},
+        "phoneNumber": {"type": "string"},
+        "bookingDate": {"type": "string", "format": "date"},
+        "startTime": {"type": "string", "format": "time"},
+        "numberOfPeople": {"type": "integer", "minimum": 1},
+        "status": {"type": "string", "enum": ["Booked", "CheckedIn", "CheckedOut", "Cancelled"]},
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["personIndex", "courseId", "courseName"],
+            "properties": {
+              "personIndex": {"type": "integer", "minimum": 1},
+              "courseId": {"type": "integer"},
+              "courseName": {"type": "string"}
+            }
+          }
+        },
+        "addOns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["personIndex", "courseId", "courseName"],
+            "properties": {
+              "personIndex": {"type": "integer", "minimum": 1},
+              "courseId": {"type": "integer"},
+              "courseName": {"type": "string"}
+            }
+          }
+        },
+        "therapistId": {"type": "integer"},
+        "therapistName": {"type": "string"}
+      }
+    },
+    "message": {"type": "string"}
+  }
+}
