@@ -1,0 +1,21 @@
+# chatbot/conversation/intent_extractor.py
+from chatbot.models.conversation import Conversation
+from chatbot.models.intent import Intent
+from chatbot.prompts.intent import INTENT_EXTRACTION_PROMPT
+
+from chatbot.app.llm import LLMService
+
+
+class IntentExtractor:
+    def __init__(self, llm_service: LLMService):
+        self.llm_service = llm_service
+
+    def extract(self, conversation: Conversation) -> Intent:
+        """
+        Extracts the user's intent from the conversation.
+        """
+        return self.llm_service.json_completion(
+            prompt=INTENT_EXTRACTION_PROMPT,
+            conversation=conversation,
+            response_model=Intent,
+        )

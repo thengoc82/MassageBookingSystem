@@ -1,4 +1,4 @@
-
+# chatbot/tools/search_tools.py
 from gateway.client import HTTPClient
 from gateway.errors import ChatbotError, ChatbotErrorCode
 from models import (
@@ -17,6 +17,7 @@ from models import (
     SearchShopsRequest,
     SearchShopsResponse,
 )
+
 from tools.base import BaseTool
 
 
@@ -24,7 +25,7 @@ class SearchShopsTool(BaseTool[SearchShopsRequest, SearchShopsResponse]):
     """Tool to search for all available shops."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("searchShops")
+        super().__init__("searchShops", SearchShopsRequest, SearchShopsResponse)
         self._client = http_client
 
     async def execute(self, request: SearchShopsRequest) -> SearchShopsResponse:
@@ -36,7 +37,7 @@ class SearchCoursesTool(BaseTool[SearchCoursesRequest, SearchCoursesResponse]):
     """Tool to search for courses at a specific shop."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("searchCourses")
+        super().__init__("searchCourses", SearchCoursesRequest, SearchCoursesResponse)
         self._client = http_client
 
     async def execute(self, request: SearchCoursesRequest) -> SearchCoursesResponse:
@@ -54,7 +55,7 @@ class SearchAvailableSlotsTool(BaseTool[SearchAvailableSlotsRequest, SearchAvail
     """Tool to search for available time slots."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("searchAvailableSlots")
+        super().__init__("searchAvailableSlots", SearchAvailableSlotsRequest, SearchAvailableSlotsResponse)
         self._client = http_client
 
     async def execute(self, request: SearchAvailableSlotsRequest) -> SearchAvailableSlotsResponse:
@@ -80,7 +81,7 @@ class GetTherapistsTool(BaseTool[GetTherapistsRequest, GetTherapistsResponse]):
     """Tool to get available therapists at a specific time."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("getTherapists")
+        super().__init__("getTherapists", GetTherapistsRequest, GetTherapistsResponse)
         self._client = http_client
 
     async def execute(self, request: GetTherapistsRequest) -> GetTherapistsResponse:
@@ -100,7 +101,7 @@ class LookupBookingTool(BaseTool[LookupBookingRequest, LookupBookingResponse]):
     """Tool to look up booking by booking code or phone number."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("lookupBooking")
+        super().__init__("lookupBooking", LookupBookingRequest, LookupBookingResponse)
         self._client = http_client
 
     async def execute(self, request: LookupBookingRequest) -> LookupBookingResponse:
@@ -123,7 +124,7 @@ class CheckEligibilityTool(BaseTool[CheckEligibilityRequest, CheckEligibilityRes
     """Tool to check customer booking eligibility."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("checkEligibility")
+        super().__init__("checkEligibility", CheckEligibilityRequest, CheckEligibilityResponse)
         self._client = http_client
 
     async def execute(self, request: CheckEligibilityRequest) -> CheckEligibilityResponse:
@@ -135,7 +136,7 @@ class FAQSearchTool(BaseTool[FAQSearchRequest, FAQSearchResponse]):
     """Tool to search FAQ knowledge base."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("faqSearch")
+        super().__init__("faqSearch", FAQSearchRequest, FAQSearchResponse)
         self._client = http_client
 
     async def execute(self, request: FAQSearchRequest) -> FAQSearchResponse:

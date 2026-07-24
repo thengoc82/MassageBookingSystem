@@ -1,15 +1,15 @@
 """Tests for Phase 0 — Interfaces"""
 import pytest
-
+from pydantic import BaseModel
 from tools.base import BaseTool
 
 
 class TestTool(BaseTool):
     def __init__(self):
-        super().__init__("test_tool")
+        super().__init__("test_tool", BaseModel, BaseModel)
 
-    async def execute(self, request: dict) -> dict:
-        return {"result": "test"}
+    async def execute(self, request: BaseModel) -> BaseModel:
+        return BaseModel()
 
 
 def test_tool_interface_protocol():
