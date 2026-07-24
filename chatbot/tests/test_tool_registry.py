@@ -1,24 +1,24 @@
 """Tests for Phase 0 — Tool Registry"""
 import pytest
-
+from pydantic import BaseModel
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
 
 class TestTool(BaseTool):
     def __init__(self):
-        super().__init__("test_tool")
+        super().__init__("test_tool", BaseModel, BaseModel)
 
-    async def execute(self, request: dict) -> dict:
-        return {"result": "test"}
+    async def execute(self, request: BaseModel) -> BaseModel:
+        return BaseModel()
 
 
 class AnotherTestTool(BaseTool):
     def __init__(self):
-        super().__init__("another_test_tool")
+        super().__init__("another_test_tool", BaseModel, BaseModel)
 
-    async def execute(self, request: dict) -> dict:
-        return {"result": "another"}
+    async def execute(self, request: BaseModel) -> BaseModel:
+        return BaseModel()
 
 
 def test_registry_register_and_get():
