@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "bookingId": { "type": "string" },
+    "reason": { "type": "string" }
+  },
+  "required": ["bookingId"]
+}

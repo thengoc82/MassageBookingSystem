@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "shopId": { "type": "string" },
+    "phoneNumber": { "type": "string" },
+    "bookingDate": { "type": "string" },
+    "startTime": { "type": "string" },
+    "numberOfPeople": { "type": "integer" },
+    "services": { 
+      "type": "array", 
+      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "string" } } } 
+    },
+    "addOns": { 
+      "type": "array", 
+      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "string" } } } 
+    },
+    "therapistId": { "type": "string" },
+    "therapistGender": { "type": "string" }
+  },
+  "required": ["shopId", "phoneNumber", "bookingDate", "startTime", "numberOfPeople", "services"]
+}
