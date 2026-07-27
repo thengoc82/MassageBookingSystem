@@ -1,0 +1,15 @@
+# chatbot/tests/conftest.py
+import pytest
+from pytest_postgresql import factories
+
+# This is a session-scoped fixture that will be shared across all tests.
+# It creates a new database for each test session.
+postgresql_proc = factories.postgresql_proc()
+
+@pytest.fixture(scope="session")
+def db(postgresql_proc):
+    """A session-scoped PostgreSQL database fixture."""
+    with postgresql_proc.cursor() as cur:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    postgresql_proc.commit()
+    return postgresql_proc

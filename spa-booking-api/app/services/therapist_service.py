@@ -1,9 +1,10 @@
 from datetime import datetime, time, timedelta
+
+from app.extensions import db
+from app.models.booking import Booking, BookingTherapist
 from app.models.therapist import Therapist
 from app.models.therapist_shift import TherapistShift
-from app.models.booking import Booking, BookingTherapist
-from app.extensions import db
-from app.utils.errors import BusinessRuleViolation
+
 
 class TherapistService:
 

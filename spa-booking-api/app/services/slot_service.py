@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
+
+from app.models.booking import Booking, BookingTherapist
 from app.models.shop import Shop
 from app.models.therapist import Therapist
-from app.models.booking import Booking, BookingTherapist
 from app.services.therapist_service import TherapistService
-from app.extensions import db
 from app.utils.errors import ResourceNotFound, ValidationError
+
 
 class SlotService:
     SLOT_INTERVAL = 15

@@ -1,8 +1,10 @@
+from datetime import date, time
+
 import pytest
 from app import create_app
 from app.extensions import db
-from app.models import Shop, Customer, Course, Therapist, TherapistShift
-from datetime import time, date, datetime, timedelta
+from app.models import Course, Customer, Shop, Therapist, TherapistShift
+
 
 @pytest.fixture
 def app():

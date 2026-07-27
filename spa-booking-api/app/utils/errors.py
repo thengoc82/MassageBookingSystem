@@ -1,15 +1,16 @@
 from flask import jsonify
 
+
 class APIError(Exception):
     status_code = 400
-    
+
     def __init__(self, code, message, status_code=None):
         super().__init__()
         self.code = code
         self.message = message
         if status_code is not None:
             self.status_code = status_code
-    
+
     def to_dict(self):
         return {
             'success': False,
@@ -45,7 +46,7 @@ def register_error_handlers(app):
         response = jsonify(error.to_dict())
         response.status_code = error.status_code
         return response
-    
+
     @app.errorhandler(404)
     def handle_404(error):
         return jsonify({
@@ -55,7 +56,7 @@ def register_error_handlers(app):
                 'message': 'Resource not found'
             }
         }), 404
-    
+
     @app.errorhandler(500)
     def handle_500(error):
         return jsonify({

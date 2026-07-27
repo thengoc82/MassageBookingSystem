@@ -1,12 +1,10 @@
 """Tests for session — Redis session storage"""
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from chatbot.app.config import Settings
+from chatbot.session.store import RedisSessionStore, SessionData
 from pydantic import ValidationError
-
-from app.config import Settings
-from session.store import RedisSessionStore, SessionData
 
 
 @pytest.fixture

@@ -1,8 +1,7 @@
 # chatbot/conversation/response_generator.py
+from chatbot.app.llm import LLMService
 from chatbot.models.conversation import Conversation
 from chatbot.prompts.response import RESPONSE_PROMPT
-
-from chatbot.app.llm import LLMService
 
 
 class ResponseGenerator:

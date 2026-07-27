@@ -1,20 +1,10 @@
 """Tests for tools — read-only HTTP wrapper tools"""
 from datetime import date, time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from gateway.client import HTTPClient
-from tools.search_tools import (
-    CheckEligibilityTool,
-    FAQSearchTool,
-    GetTherapistsTool,
-    LookupBookingTool,
-    SearchAvailableSlotsTool,
-    SearchCoursesTool,
-    SearchShopsTool,
-)
-from models import (
+from chatbot.gateway.client import HTTPClient
+from chatbot.models import (
     CheckEligibilityRequest,
     FAQSearchRequest,
     GetTherapistsRequest,
@@ -22,6 +12,15 @@ from models import (
     SearchAvailableSlotsRequest,
     SearchCoursesRequest,
     SearchShopsRequest,
+)
+from chatbot.tools.search_tools import (
+    CheckEligibilityTool,
+    FAQSearchTool,
+    GetTherapistsTool,
+    LookupBookingTool,
+    SearchAvailableSlotsTool,
+    SearchCoursesTool,
+    SearchShopsTool,
 )
 
 
@@ -242,12 +241,14 @@ async def test_check_eligibility_tool() -> None:
 
 @pytest.mark.asyncio
 async def test_faq_search_tool() -> None:
-    client = make_client_mock({"success": True, "data": [], "message": "Success"})
-    tool = FAQSearchTool(client)
+    knowledge_service = MagicMock()
+    knowledge_service.query = MagicMock(return_value=[])
+    tool = FAQSearchTool(knowledge_service)
     request = FAQSearchRequest(query="How to book?")
     result = await tool.execute(request)
     assert result.success is True
     assert result.message is not None
+    knowledge_service.query.assert_called_once_with("How to book?", top_k=3)
 
 
 def test_search_shops_tool_name() -> None:
@@ -287,6 +288,39 @@ def test_check_eligibility_tool_name() -> None:
 
 
 def test_faq_search_tool_name() -> None:
-    client = make_client_mock({"success": True, "data": [], "message": "Success"})
-    tool = FAQSearchTool(client)
+    knowledge_service = MagicMock()
+    knowledge_service.query = MagicMock(return_value=[])
+    tool = FAQSearchTool(knowledge_service)
     assert tool.name == "faqSearch"
+
+
+@pytest.mark.asyncio
+async def test_faq_search_tool_with_results() -> None:
+    """Test FAQ search tool returns properly formatted citations."""
+    from chatbot.knowledge.knowledge_service import KnowledgeResult
+
+    knowledge_service = MagicMock()
+    knowledge_service.query = MagicMock(
+        return_value=[
+            KnowledgeResult(
+                chunk_id="001",
+                source_file="/docs/knowledge/faq.md",
+                title="FAQ",
+                heading="Opening Hours",
+                content="We are open from 10am to 10pm",
+                score=0.95,
+            )
+        ]
+    )
+    tool = FAQSearchTool(knowledge_service)
+    request = FAQSearchRequest(query="What are your hours?", topK=3)
+    result = await tool.execute(request)
+
+    assert result.success is True
+    assert len(result.data) == 1
+    item = result.data[0]
+    assert item.content == "We are open from 10am to 10pm"
+    assert item.score == 0.95
+    assert item.citation.source_file == "/docs/knowledge/faq.md"
+    assert item.citation.document_title == "FAQ"
+    assert item.citation.heading == "Opening Hours"

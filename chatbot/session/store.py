@@ -4,7 +4,7 @@ import time
 import redis.asyncio as redis
 from pydantic import BaseModel, Field
 
-from app.config import Settings
+from chatbot.app.config import Settings
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,6 @@
 import re
 
+
 def validate_phone_number(phone):
     pattern = r'^0[0-9]{9,10}$'
     return bool(re.match(pattern, phone))

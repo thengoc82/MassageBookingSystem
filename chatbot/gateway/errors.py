@@ -50,8 +50,16 @@ class ValidationError(ChatbotError):
 
 
 class NotFoundError(ChatbotError):
-    def __init__(self, message: str, resource_type: str = "resource") -> None:
-        super().__init__(ChatbotErrorCode.NOT_FOUND, message, {"resource_type": resource_type}, retryable=False)
+    def __init__(
+        self, message: str, resource_type: str = "resource"
+    ) -> None:
+        super().__init__(
+            ChatbotErrorCode.NOT_FOUND,
+            message,
+            {"resource_type": resource_type},
+            retryable=False,
+        )
+
 
 
 class ShopNotFoundError(NotFoundError):
@@ -85,7 +93,13 @@ class TherapistUnavailableError(ConflictError):
 
 class BusinessRuleError(ChatbotError):
     def __init__(self, message: str, details: dict | None = None) -> None:
-        super().__init__(ChatbotErrorCode.BUSINESS_RULE_VIOLATION, message, details, retryable=False)
+        super().__init__(
+            ChatbotErrorCode.BUSINESS_RULE_VIOLATION,
+            message,
+            details,
+            retryable=False,
+        )
+
 
 
 class InvalidBookingDateError(BusinessRuleError):

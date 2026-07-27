@@ -2,7 +2,6 @@ from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
-
 from chatbot.conversation.state import PendingAction
 from chatbot.gateway.client import HTTPClient
 from chatbot.tools.write_tools import CreateBookingTool
@@ -25,7 +24,7 @@ async def test_create_booking_tool():
 
     tool = CreateBookingTool(mock_client)
 
-    from models import CreateBookingRequest
+    from chatbot.models import CreateBookingRequest
     request = CreateBookingRequest(
         shopId=1,
         phoneNumber="0901234567",

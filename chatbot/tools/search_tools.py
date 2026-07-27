@@ -154,7 +154,10 @@ class FAQSearchTool(BaseTool[FAQSearchRequest, FAQSearchResponse]):
 
     async def execute(self, request: FAQSearchRequest) -> FAQSearchResponse:
         if not self._knowledge_service:
-            raise ChatbotError(ChatbotErrorCode.INTERNAL_SERVER_ERROR, "Knowledge service not configured")
+            raise ChatbotError(
+                ChatbotErrorCode.INTERNAL_SERVER_ERROR,
+                "Knowledge service not configured",
+            )
 
         results = self._knowledge_service.query(request.query, top_k=request.topK)
 

@@ -7,6 +7,7 @@ Heading context is preserved by prepending the current heading to each chunk.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -22,7 +23,7 @@ class TextChunk:
     title: str
     heading: str
     content: str
-    last_updated: "datetime"  # type: ignore[name-defined]
+    last_updated: datetime
 
 
 @dataclass
@@ -83,7 +84,10 @@ def chunk_document(
             continue
         parts = splitter.split_text(body)
         for part in parts:
-            context_heading = heading or (document.headings[0] if document.headings else document.title)
+            context_heading = (
+                heading
+                or (document.headings[0] if document.headings else document.title)
+            )
             chunk_id = f"{source_offset + len(chunks):05d}-{_slugify(document.title)}-{_slugify(context_heading)}"
             content = f"{context_heading}\n\n{part}" if context_heading else part
             chunks.append(

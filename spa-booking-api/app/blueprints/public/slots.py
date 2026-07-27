@@ -1,8 +1,9 @@
-from flask import request, jsonify
 from app.blueprints.public import public_bp
 from app.services.slot_service import SlotService
 from app.utils import success_response
 from app.utils.errors import ValidationError
+from flask import jsonify, request
+
 
 @public_bp.route('/shops/<int:shop_id>/available-slots', methods=['GET'])
 def get_available_slots(shop_id):
@@ -13,16 +14,16 @@ def get_available_slots(shop_id):
     course_ids = request.args.get('courseIds')
     gender = request.args.get('gender')
     show_therapists = request.args.get('show_therapists', '').lower() == 'true'
-    
+
     if not date:
         raise ValidationError('date is required')
-    
+
     if not duration:
         raise ValidationError('duration is required')
-    
+
     if not number_of_people:
         raise ValidationError('numberOfPeople is required')
-    
+
     result = SlotService.get_available_slots(
         shop_id=shop_id,
         date=date,
@@ -33,7 +34,7 @@ def get_available_slots(shop_id):
         gender=gender,
         show_therapists=show_therapists
     )
-    
+
     if show_therapists:
         response = {
             'success': True,
@@ -44,5 +45,5 @@ def get_available_slots(shop_id):
         if 'therapistBookingDetails' in result:
             response['therapistBookingDetails'] = result['therapistBookingDetails']
         return jsonify(response), 200
-    
+
     return success_response(result)

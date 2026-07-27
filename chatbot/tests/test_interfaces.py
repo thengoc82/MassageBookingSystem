@@ -1,7 +1,7 @@
 """Tests for Phase 0 — Interfaces"""
 import pytest
+from chatbot.tools.base import BaseTool
 from pydantic import BaseModel
-from tools.base import BaseTool
 
 
 class TestTool(BaseTool):

@@ -1,6 +1,6 @@
 # chatbot/tools/write_tools.py
-from gateway.client import HTTPClient
-from models import (
+from chatbot.gateway.client import HTTPClient
+from chatbot.models import (
     CancelBookingRequest,
     CancelBookingResponse,
     CreateBookingRequest,
@@ -8,8 +8,7 @@ from models import (
     ModifyBookingRequest,
     ModifyBookingResponse,
 )
-
-from tools.base import BaseTool
+from chatbot.tools.base import BaseTool
 
 
 class CreateBookingTool(BaseTool[CreateBookingRequest, CreateBookingResponse]):

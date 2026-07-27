@@ -1,8 +1,8 @@
 """Tests for Phase 0 — Tool Registry"""
 import pytest
+from chatbot.tools.base import BaseTool
+from chatbot.tools.registry import ToolRegistry
 from pydantic import BaseModel
-from tools.base import BaseTool
-from tools.registry import ToolRegistry
 
 
 class TestTool(BaseTool):

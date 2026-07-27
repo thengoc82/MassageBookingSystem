@@ -38,20 +38,25 @@ class ToolOrchestrator:
             raise ValueError("No pending action to execute.")
 
         # Check for expiration
-        if datetime.now() - state.pending_action.timestamp > timedelta(minutes=5):  # 5 minute timeout
+        if (
+            datetime.now() - state.pending_action.timestamp
+            > timedelta(minutes=5)
+        ):  # 5 minute timeout
             state.pending_action.status = "expired"
             state.pending_action = None  # Clear expired action
             raise ValueError("Pending action expired.")
+
 
         if state.pending_action.status == "executing":
             raise ValueError("Pending action is already executing.")
 
         state.pending_action.status = "executing"
 
-        tool = self.tool_registry.get_tool(state.pending_action.tool_name)
+        tool = self.tool_registry.get(state.pending_action.tool_name)
         if not tool:
             state.pending_action.status = "cancelled"
             raise ValueError(f"Tool '{state.pending_action.tool_name}' not found.")
+
 
         try:
             # Execute the tool and return the result
@@ -72,14 +77,19 @@ class ToolOrchestrator:
         if not plan.tool_name:
             raise ValueError("No tool specified in the plan")
 
-        tool = self.tool_registry.get_tool(plan.tool_name)
+        tool = self.tool_registry.get(plan.tool_name)
         if not tool:
             raise ValueError(f"Tool '{plan.tool_name}' not found")
-        
+
         if tool.is_write:
             # For write tools, we don't execute directly. Planner proposes it.
             # This method should only be called for read tools.
-            raise ValueError(f"Write tool '{plan.tool_name}' cannot be executed directly. Use propose_write_action.")
+            raise ValueError(
+                f"Write tool '{plan.tool_name}' cannot be executed directly. "
+                "Use propose_write_action."
+            )
+
+
 
         # Validate arguments using the tool's request_model
         request_model_instance = tool.RequestModel(**plan.tool_args)

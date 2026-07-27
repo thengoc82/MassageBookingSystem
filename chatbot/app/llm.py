@@ -2,7 +2,7 @@ import json
 
 import openai
 
-from app.interfaces import LLMService
+from chatbot.app.interfaces import LLMService
 
 
 class OpenAILLMService(LLMService):
@@ -24,7 +24,13 @@ class OpenAILLMService(LLMService):
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "Analyze the message and context, extract intent and parameters as JSON."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Analyze the message and context, extract intent and parameters "
+                        "as JSON."
+                    ),
+                },
                 {"role": "user", "content": text},
             ],
             response_format={"type": "json_object"},

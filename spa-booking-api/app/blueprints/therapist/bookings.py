@@ -1,10 +1,10 @@
-from flask import request
-from flask_jwt_extended import get_jwt_identity
 from app.blueprints.therapist import therapist_bp
-from app.utils.decorators import role_required
 from app.models.booking import Booking
 from app.utils import success_response
+from app.utils.decorators import role_required
 from app.utils.errors import ValidationError
+from flask import request
+from flask_jwt_extended import get_jwt_identity
 
 
 @therapist_bp.route('/bookings', methods=['GET'])
@@ -72,13 +72,18 @@ def therapist_checkin(booking_id):
 
     if booking.status != 'Booked':
         from app.utils.errors import BusinessRuleViolation
-        raise BusinessRuleViolation('INVALID_CHECKIN_STATUS', 'Only Booked bookings can be checked in')
+        raise BusinessRuleViolation(
+            'INVALID_CHECKIN_STATUS', 'Only Booked bookings can be checked in'
+        )
 
     booking.status = 'CheckedIn'
     from app.extensions import db
     db.session.commit()
 
-    return success_response({'bookingId': booking.id, 'status': booking.status}, message='Checked in')
+    return success_response(
+        {'bookingId': booking.id, 'status': booking.status},
+        message='Checked in'
+    )
 
 
 @therapist_bp.route('/bookings/<int:booking_id>/checkout', methods=['PATCH'])
@@ -98,10 +103,15 @@ def therapist_checkout(booking_id):
 
     if booking.status != 'CheckedIn':
         from app.utils.errors import BusinessRuleViolation
-        raise BusinessRuleViolation('INVALID_CHECKOUT_STATUS', 'Only CheckedIn bookings can be checked out')
+        raise BusinessRuleViolation(
+            'INVALID_CHECKOUT_STATUS', 'Only CheckedIn bookings can be checked out'
+        )
 
     booking.status = 'CheckedOut'
     from app.extensions import db
     db.session.commit()
 
-    return success_response({'bookingId': booking.id, 'status': booking.status}, message='Checked out')
+    return success_response(
+        {'bookingId': booking.id, 'status': booking.status},
+        message='Checked out'
+    )

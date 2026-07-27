@@ -1,9 +1,12 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from datetime import date, time
+
 from app import create_app
 from app.extensions import db
-from app.models import Shop, Course, Therapist, TherapistShift, User
-from datetime import time, date
+from app.models import Course, Shop, Therapist, TherapistShift, User
 
 app = create_app()
 with app.app_context():

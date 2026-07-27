@@ -2,4 +2,4 @@ from flask import Blueprint
 
 admin_bp = Blueprint('admin', __name__)
 
-from app.blueprints.admin import shops, courses, therapists, bookings, customers
+from app.blueprints.admin import bookings, courses, customers, shops, therapists

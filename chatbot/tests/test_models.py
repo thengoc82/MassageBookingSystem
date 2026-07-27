@@ -1,31 +1,24 @@
 """Tests for typed request/response models"""
-import pytest
 from datetime import date, time
-from pydantic import ValidationError
 
-from models import (
-    BookingInfo,
+import pytest
+from chatbot.models import (
     CheckEligibilityRequest,
-    CheckEligibilityResponse,
-    CourseInfo,
     EligibilityInfo,
+    FAQCitation,
     FAQItem,
     FAQSearchRequest,
     FAQSearchResponse,
     GetTherapistsRequest,
-    GetTherapistsResponse,
     LookupBookingRequest,
     LookupBookingResponse,
     SearchAvailableSlotsRequest,
-    SearchAvailableSlotsResponse,
     SearchCoursesRequest,
     SearchCoursesResponse,
     SearchShopsRequest,
     SearchShopsResponse,
-    ShopInfo,
-    SlotInfo,
-    TherapistInfo,
 )
+from pydantic import ValidationError
 
 
 def test_search_shops_request():
@@ -158,10 +151,20 @@ def test_faq_search_request_top_k_limit():
 def test_faq_search_response():
     resp = FAQSearchResponse(
         success=True,
-        data=[FAQItem(question="Q?", answer="A.", category="General", score=0.9)],
+        data=[
+            FAQItem(
+                content="A.",
+                score=0.9,
+                citation=FAQCitation(
+                    source_file="/faq.md",
+                    document_title="FAQ",
+                    heading="General",
+                ),
+            )
+        ],
         message="Found",
     )
-    assert resp.data[0].question == "Q?"
+    assert resp.data[0].content == "A."
 
 
 def test_lookup_booking_request_optional():

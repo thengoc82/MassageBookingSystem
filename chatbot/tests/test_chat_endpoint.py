@@ -2,13 +2,12 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from chatbot.app.chat_endpoint import ChatEndpoint, ChatRequest, create_app
+from chatbot.conversation.state import ConversationPhase, ConversationState
+from chatbot.models import SearchShopsResponse
+from chatbot.session.store import RedisSessionStore, SessionData
+from chatbot.tools.registry import ToolRegistry
 from fastapi.testclient import TestClient
-
-from app.chat_endpoint import ChatEndpoint, ChatRequest, ChatResponse, create_app
-from app.config import Settings
-from conversation.state import ConversationPhase, ConversationState
-from session.store import SessionData, RedisSessionStore
-from tools.registry import ToolRegistry
 
 
 def make_session_store_mock() -> RedisSessionStore:
@@ -54,19 +53,22 @@ async def test_process_message_search_shops() -> None:
     # Mock the searchShops tool
     mock_tool = AsyncMock()
     mock_tool.name = "searchShops"
-    from models import SearchShopsResponse
-    from datetime import time
     mock_tool.execute = AsyncMock(return_value=SearchShopsResponse(
         success=True,
         data=[],
         message="Success",
     ))
-    endpoint._tool_registry.get = MagicMock(return_value=mock_tool)
+    with patch.object(endpoint._tool_registry, "get", return_value=mock_tool):
+        request = ChatRequest(message="I want to find a shop", session_id="test-1")
+        response = await endpoint.process_message(request)
+        assert response.success is True
+        assert (
+            "shops" in response.message.lower()
+            or "found" in response.message.lower()
+            or "search" in response.message.lower()
+        )
 
-    request = ChatRequest(message="I want to find a shop", session_id="test-1")
-    response = await endpoint.process_message(request)
-    assert response.success is True
-    assert "shops" in response.message.lower() or "found" in response.message.lower() or "search" in response.message.lower()
+
 
 
 @pytest.mark.asyncio
@@ -163,20 +165,23 @@ async def test_unknown_intent_returns_help() -> None:
 async def test_initialize_and_close() -> None:
     endpoint = ChatEndpoint()
     # Patch the gateway components
-    with patch("app.chat_endpoint.create_client") as mock_create:
-        with patch("app.chat_endpoint.RedisSessionStore") as mock_store_class:
-            mock_client = AsyncMock()
-            mock_client.close = AsyncMock()
-            mock_create.return_value = mock_client
+    with patch("chatbot.app.chat_endpoint.create_client") as mock_create:
+        with patch("chatbot.app.chat_endpoint.RedisSessionStore") as mock_store_class:
+            with patch("chatbot.app.chat_endpoint.PgVectorStore") as mock_pg_store:
+                mock_client = AsyncMock()
+                mock_client.close = AsyncMock()
+                mock_create.return_value = mock_client
 
-            mock_store_instance = MagicMock()
-            mock_store_instance.close = AsyncMock()
-            mock_store_class.return_value = mock_store_instance
+                mock_store_instance = MagicMock()
+                mock_store_instance.close = AsyncMock()
+                mock_store_class.return_value = mock_store_instance
 
-            await endpoint.initialize()
-            assert endpoint._initialized is True
-            await endpoint.close()
-            assert endpoint._initialized is False
+                mock_pg_store.return_value = MagicMock()
+
+                await endpoint.initialize()
+                assert endpoint._initialized is True
+                await endpoint.close()
+                assert endpoint._initialized is False
 
 
 @pytest.mark.asyncio

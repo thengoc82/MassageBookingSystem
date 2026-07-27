@@ -1,12 +1,11 @@
 """Tests for conversation state — transitions and validation"""
-import pytest
 
-from conversation.state import (
+from chatbot.conversation.state import (
+    STATE_TRANSITIONS,
     BookingContext,
     ConversationManager,
     ConversationPhase,
     ConversationState,
-    STATE_TRANSITIONS,
     StateTransition,
 )
 

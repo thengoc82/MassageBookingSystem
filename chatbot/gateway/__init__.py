@@ -1,5 +1,5 @@
-from gateway.client import GatewayConfig, HTTPClient, create_client
-from gateway.errors import (
+from chatbot.gateway.client import GatewayConfig, HTTPClient, create_client
+from chatbot.gateway.errors import (
     BookingNotFoundError,
     BusinessRuleError,
     ChatbotError,

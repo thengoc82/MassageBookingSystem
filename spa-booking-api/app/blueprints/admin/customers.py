@@ -1,9 +1,9 @@
-from flask import request
 from app.blueprints.admin import admin_bp
-from app.utils.decorators import role_required
 from app.models.customer import Customer
 from app.utils import success_response
+from app.utils.decorators import role_required
 from app.utils.errors import ResourceNotFound
+from flask import request
 
 
 @admin_bp.route('/customers', methods=['GET'])
