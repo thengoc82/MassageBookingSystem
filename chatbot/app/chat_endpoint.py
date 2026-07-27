@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 from chatbot.app.config import Settings
@@ -25,7 +25,11 @@ from chatbot.models import (
     SearchCoursesRequest,
     SearchShopsRequest,
 )
-from chatbot.session.store import RedisSessionStore
+from chatbot.observability.logging import configure_logging, get_logger
+from chatbot.observability.metrics import get_metrics, tracing_middleware
+from chatbot.observability.rate_limit import RateLimitExceeded, TokenBucketRateLimiter
+from chatbot.recovery.handler import RecoveryHandler
+from chatbot.session.store import RedisSessionStore, SessionData
 from chatbot.tools.registry import ToolRegistry
 from chatbot.tools.search_tools import (
     CheckEligibilityTool,
@@ -81,6 +85,8 @@ class ChatEndpoint:
         conversation_manager: ConversationManager | None = None,
         tool_registry: ToolRegistry | None = None,
         knowledge_service: KnowledgeService | None = None,
+        rate_limiter: TokenBucketRateLimiter | None = None,
+        recovery_handler: RecoveryHandler | None = None,
     ) -> None:
         self._settings = settings or Settings()
         self._http_client = http_client
@@ -88,6 +94,9 @@ class ChatEndpoint:
         self._conversation_manager = conversation_manager or ConversationManager()
         self._tool_registry = tool_registry
         self._knowledge_service = knowledge_service
+        self._rate_limiter = rate_limiter or TokenBucketRateLimiter()
+        self._recovery_handler = recovery_handler or RecoveryHandler(self._conversation_manager)
+        self._logger = get_logger("chatbot.app.chat_endpoint")
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -150,38 +159,111 @@ class ChatEndpoint:
         """Process a chat message."""
         await self.initialize()
 
-        # Get or create session
-        session_store = self._session_store
-        assert session_store is not None
-        session = await session_store.get_session(request.session_id)
-        if session is None:
-            session = await session_store.create_session(request.session_id, request.user_id)
+        metrics = get_metrics()
+        metrics.incr("chat_requests_total")
 
-        # Get conversation state
-        state_dict = session.conversation_state
-        if not state_dict:
-            state = ConversationState()
-        else:
-            state = ConversationState(**state_dict)
+        state: ConversationState | None = None
+        session: SessionData | None = None
+        try:
+            # Rate limit before any costly operations
+            assert self._rate_limiter is not None
+            self._rate_limiter.check(request.session_id, request.user_id)
 
-        # Parse intent from message (deterministic for Phase 1)
-        intent = self._parse_intent(request.message, state)
+            # Get or create session
+            session_store = self._session_store
+            assert session_store is not None
+            session = await session_store.get_session(request.session_id)
+            if session is None:
+                session = await session_store.create_session(request.session_id, request.user_id)
+                metrics.incr("sessions_created_total")
 
-        # Handle intent
-        response = await self._handle_intent(intent, request.message, state, session.session_id)
+            # Get conversation state
+            state_dict = session.conversation_state
+            if not state_dict:
+                state = ConversationState()
+            else:
+                state = ConversationState(**state_dict)
 
-        # Save updated state
-        session.conversation_state = response.state.model_dump()
-        await session_store.save_session(session)
+            # Handle ambiguous input and "start over"
+            if self._is_start_over(request.message) or self._is_go_back(request.message):
+                if state.pending_action is not None:
+                    # ponytail: pending action present, cannot safely reset.
+                    # Force user to confirm or cancel the pending action first.
+                    metrics.incr("reset_blocked_by_pending_action_total")
+                    return ChatResponse(
+                        success=False,
+                        message=(
+                            "You have a pending action that requires confirmation. "
+                            "Please confirm or cancel before starting over."
+                        ),
+                        session_id=request.session_id,
+                        phase=state.phase,
+                        error="PENDING_ACTION_REQUIRES_CONFIRMATION",
+                    )
+                state = self._conversation_manager.reset(state)
+                metrics.incr("conversation_resets_total")
+                response = IntentResponse(True, "Let's start over. How can I help?", state)
+            else:
+                # Main conversation logic
+                intent = self._parse_intent(request.message, state)
+                response = await self._handle_intent(
+                    intent, request.message, state, session.session_id
+                )
 
-        return ChatResponse(
-            success=response.success,
-            message=response.message,
-            session_id=session.session_id,
-            phase=response.state.phase,
-            data=response.data,
-            error=response.error,
-        )
+            # Save updated state
+            session.conversation_state = response.state.model_dump()
+            await session_store.save_session(session)
+
+            # Final response
+            return ChatResponse(
+                success=response.success,
+                message=response.message,
+                session_id=session.session_id,
+                phase=response.state.phase,
+                data=response.data,
+                error=response.error,
+            )
+        except RateLimitExceeded as e:
+            metrics.incr("rate_limit_exceeded_total")
+            self._logger.warning("Rate limit exceeded", extra={"session_id": request.session_id})
+            return ChatResponse(
+                success=False,
+                message=str(e),
+                session_id=request.session_id,
+                phase=state.phase if state else ConversationPhase.GREETING,
+                error="RATE_LIMIT_EXCEEDED",
+            )
+        except Exception as e:
+            metrics.incr("chat_errors_total", labels={"error_type": type(e).__name__})
+            if self._recovery_handler and state and session:
+                new_state, user_message = self._recovery_handler.handle_failure(e, state, session)
+                session.conversation_state = new_state.model_dump()
+                assert self._session_store is not None
+                await self._session_store.save_session(session)
+                return ChatResponse(
+                    success=False,
+                    message=user_message,
+                    session_id=session.session_id,
+                    phase=new_state.phase,
+                    error="RECOVERY_ACTIVATED",
+                )
+            # Fallback if recovery handler fails or isn't available
+            self._logger.error("Unhandled exception in chat processing", exc_info=e)
+            return ChatResponse(
+                success=False,
+                message="An unexpected error occurred. Please try again later.",
+                session_id=request.session_id,
+                phase=ConversationPhase.ERROR,
+                error="UNHANDLED_EXCEPTION",
+            )
+
+    def _is_start_over(self, message: str) -> bool:
+        """Check for 'start over' keywords."""
+        return message.lower().strip() in ("start over", "restart")
+
+    def _is_go_back(self, message: str) -> bool:
+        """Check for 'go back' keywords."""
+        return message.lower().strip() in ("go back", "back")
 
     def _parse_intent(self, message: str, state: ConversationState) -> str:
         """Parse user intent from message (deterministic keyword matching for Phase 1)."""
@@ -269,8 +351,8 @@ class ChatEndpoint:
             return IntentResponse(True, "Action cancelled.", state)
 
         if intent == "reset":
-
             state = self._conversation_manager.reset(state)
+            get_metrics().incr("conversation_resets_total")
             return IntentResponse(True, "Conversation reset. How can I help you?", state)
 
         if intent == "search_shops":
@@ -473,6 +555,7 @@ class ChatEndpoint:
 
 def create_app() -> FastAPI:
     """Create FastAPI application."""
+    configure_logging()
     app = FastAPI(title="Chatbot Service", version="1.0.0")
     chat_endpoint = ChatEndpoint()
 
@@ -484,6 +567,10 @@ def create_app() -> FastAPI:
     async def shutdown() -> None:
         await chat_endpoint.close()
 
+    @app.middleware("http")
+    async def trace_middleware(request: Request, call_next: Any) -> Any:
+        return await tracing_middleware(request, call_next)
+
     @app.post("/chat", response_model=ChatResponse)
     async def chat(request: ChatRequest) -> ChatResponse:
         return await chat_endpoint.process_message(request)
@@ -491,5 +578,9 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict:
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics() -> dict:
+        return get_metrics().render()
 
     return app

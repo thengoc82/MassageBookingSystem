@@ -16,3 +16,7 @@ class Settings(BaseSettings):
     embedding_dim: int = Field(default=384, ge=1)
     vector_store_top_k: int = Field(default=5, ge=1)
     pg_dsn: str = Field(default="postgresql://localhost:5432/chatbot")
+
+    # Rate limiting settings
+    rate_limit_capacity: int = Field(default=20, ge=1)
+    rate_limit_refill_rate: float = Field(default=20.0 / 60.0, gt=0)
