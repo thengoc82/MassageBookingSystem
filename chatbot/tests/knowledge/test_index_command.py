@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from chatbot.scripts.index_knowledge_base import cli
 from typer.testing import CliRunner
@@ -57,7 +58,7 @@ Some content here.
                 return_value=mock_vector_store,
             ),
         ):
-            mock_embedding_service.embed_texts.return_value = [[0.1] * 384]
+            mock_embedding_service.embed_texts.return_value = np.array([[0.1] * 384], dtype=float)
             result = runner.invoke(cli, ["--root-dir", str(root)])
 
     assert result.exit_code == 0, result.output

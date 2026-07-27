@@ -1,11 +1,11 @@
-from flask import request
 from app.blueprints.admin import admin_bp
-from app.utils.decorators import role_required
+from app.extensions import db
 from app.models.course import Course
 from app.models.shop import Shop
-from app.extensions import db
 from app.utils import success_response
+from app.utils.decorators import role_required
 from app.utils.errors import ResourceNotFound, ValidationError
+from flask import request
 
 
 @admin_bp.route('/shops/<int:shop_id>/courses', methods=['GET'])

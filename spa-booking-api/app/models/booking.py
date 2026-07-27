@@ -1,9 +1,11 @@
-from app.extensions import db
 from datetime import datetime
+
+from app.extensions import db
+
 
 class Booking(db.Model):
     __tablename__ = 'bookings'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     booking_code = db.Column(db.String(20), unique=True, nullable=False, index=True)
     shop_id = db.Column(db.Integer, db.ForeignKey('shops.id'), nullable=False)
@@ -21,14 +23,14 @@ class Booking(db.Model):
     created_by = db.Column(db.String(20), default='customer')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     shop = db.relationship('Shop', back_populates='bookings')
     customer = db.relationship('Customer', back_populates='bookings')
     therapist = db.relationship('Therapist', back_populates='bookings')
     services = db.relationship('BookingService', back_populates='booking', cascade='all, delete-orphan')
     addons = db.relationship('BookingAddon', back_populates='booking', cascade='all, delete-orphan')
     booking_therapists = db.relationship('BookingTherapist', back_populates='booking', cascade='all, delete-orphan')
-    
+
     __table_args__ = (
         db.CheckConstraint('number_of_people > 0', name='check_number_of_people'),
         db.CheckConstraint("status IN ('Booked', 'CheckedIn', 'CheckedOut', 'Cancelled')", name='check_status'),
@@ -39,45 +41,45 @@ class Booking(db.Model):
 
 class BookingService(db.Model):
     __tablename__ = 'booking_services'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False, index=True)
     person_index = db.Column(db.Integer, nullable=False)
     course_id = db.Column(db.Integer, db.ForeignKey('courses.id'), nullable=False)
-    
+
     booking = db.relationship('Booking', back_populates='services')
     course = db.relationship('Course')
-    
+
     __table_args__ = (
         db.CheckConstraint('person_index > 0', name='check_person_index'),
     )
 
 class BookingAddon(db.Model):
     __tablename__ = 'booking_addons'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False, index=True)
     person_index = db.Column(db.Integer, nullable=False)
     course_id = db.Column(db.Integer, db.ForeignKey('courses.id'), nullable=False)
-    
+
     booking = db.relationship('Booking', back_populates='addons')
     course = db.relationship('Course')
-    
+
     __table_args__ = (
         db.CheckConstraint('person_index > 0', name='check_addon_person_index'),
     )
 
 class BookingTherapist(db.Model):
     __tablename__ = 'booking_therapists'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id', ondelete='CASCADE'), nullable=False, index=True)
     person_index = db.Column(db.Integer, nullable=False)
     therapist_id = db.Column(db.Integer, db.ForeignKey('therapists.id', ondelete='CASCADE'), nullable=False, index=True)
-    
+
     booking = db.relationship('Booking', back_populates='booking_therapists')
     therapist = db.relationship('Therapist')
-    
+
     __table_args__ = (
         db.UniqueConstraint('booking_id', 'person_index', name='uq_booking_person'),
     )

@@ -2,11 +2,14 @@ import json
 import random
 import string
 from datetime import datetime, timedelta
-from app.models.booking import Booking, BookingService as BookingServiceModel, BookingAddon, BookingTherapist
+
+from app.extensions import db
+from app.models.booking import Booking, BookingAddon, BookingTherapist
+from app.models.booking import BookingService as BookingServiceModel
 from app.models.therapist import Therapist
 from app.services.customer_service import CustomerService
-from app.extensions import db
-from app.utils.errors import ResourceNotFound, BusinessRuleViolation, ValidationError
+from app.utils.errors import BusinessRuleViolation, ResourceNotFound, ValidationError
+
 
 class BookingService:
     @staticmethod
@@ -170,7 +173,7 @@ class BookingService:
             db.session.commit()
             return booking
 
-        except (BusinessRuleViolation, ValidationError, ResourceNotFound) as e:
+        except (BusinessRuleViolation, ValidationError, ResourceNotFound):
             db.session.rollback()
             raise
         except Exception as e:

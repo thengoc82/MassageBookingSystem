@@ -1,18 +1,13 @@
 """Tests for gateway — HTTP client with retry, timeout, error mapping"""
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
-from gateway.client import HTTPClient
-from gateway.config import GatewayConfig
-from gateway.errors import (
-    ChatbotError,
-    ChatbotErrorCode,
+from chatbot.gateway.client import HTTPClient
+from chatbot.gateway.config import GatewayConfig
+from chatbot.gateway.errors import (
     GatewayConnectionError,
     GatewayTimeoutError,
-    NotFoundError,
     ShopNotFoundError,
     ValidationError,
 )
@@ -59,7 +54,10 @@ async def test_get_success(client: HTTPClient) -> None:
 
 @pytest.mark.asyncio
 async def test_get_404_maps_to_not_found(client: HTTPClient) -> None:
-    mock_response = make_response(404, {"error": {"code": "SHOP_NOT_FOUND", "message": "Not found"}})
+    mock_response = make_response(
+        404, {"error": {"code": "SHOP_NOT_FOUND", "message": "Not found"}}
+    )
+
     with patch.object(client, "_get_client") as mock_get:
         mock_http_client = AsyncMock()
         mock_http_client.is_closed = False
@@ -71,7 +69,9 @@ async def test_get_404_maps_to_not_found(client: HTTPClient) -> None:
 
 @pytest.mark.asyncio
 async def test_get_400_maps_to_validation_error(client: HTTPClient) -> None:
-    mock_response = make_response(400, {"error": {"code": "VALIDATION_ERROR", "message": "Invalid"}})
+    mock_response = make_response(
+        400, {"error": {"code": "VALIDATION_ERROR", "message": "Invalid"}}
+    )
     with patch.object(client, "_get_client") as mock_get:
         mock_http_client = AsyncMock()
         mock_http_client.is_closed = False
@@ -86,7 +86,10 @@ async def test_retry_on_timeout(client: HTTPClient) -> None:
     success_response = make_response(200, {"success": True, "data": []})
     mock_http_client = AsyncMock()
     mock_http_client.is_closed = False
-    mock_http_client.request = AsyncMock(side_effect=[httpx.TimeoutException("timeout"), success_response])
+    mock_http_client.request = AsyncMock(
+        side_effect=[httpx.TimeoutException("timeout"), success_response]
+    )
+
     with patch.object(client, "_get_client", return_value=mock_http_client):
         result = await client.get("/shops")
         assert result == {"success": True, "data": []}
@@ -98,7 +101,10 @@ async def test_retry_on_connection_error(client: HTTPClient) -> None:
     success_response = make_response(200, {"success": True, "data": []})
     mock_http_client = AsyncMock()
     mock_http_client.is_closed = False
-    mock_http_client.request = AsyncMock(side_effect=[httpx.ConnectError("conn error"), success_response])
+    mock_http_client.request = AsyncMock(
+        side_effect=[httpx.ConnectError("conn error"), success_response]
+    )
+
     with patch.object(client, "_get_client", return_value=mock_http_client):
         result = await client.get("/shops")
         assert result == {"success": True, "data": []}
@@ -126,7 +132,9 @@ async def test_retry_exhausted_connection_error(client: HTTPClient) -> None:
 
 @pytest.mark.asyncio
 async def test_no_retry_on_4xx(client: HTTPClient) -> None:
-    mock_response = make_response(400, {"error": {"code": "VALIDATION_ERROR", "message": "Invalid"}})
+    mock_response = make_response(
+        400, {"error": {"code": "VALIDATION_ERROR", "message": "Invalid"}}
+    )
     mock_http_client = AsyncMock()
     mock_http_client.is_closed = False
     mock_http_client.request = AsyncMock(return_value=mock_response)
@@ -168,7 +176,10 @@ async def test_backoff_calculation(client: HTTPClient) -> None:
 @pytest.mark.asyncio
 async def test_retry_on_5xx(client: HTTPClient) -> None:
     success_response = make_response(200, {"success": True, "data": []})
-    server_error = make_response(500, {"error": {"code": "INTERNAL_SERVER_ERROR", "message": "Error"}})
+    server_error = make_response(
+        500, {"error": {"code": "INTERNAL_SERVER_ERROR", "message": "Error"}}
+    )
+
     mock_http_client = AsyncMock()
     mock_http_client.is_closed = False
     mock_http_client.request = AsyncMock(side_effect=[server_error, success_response])

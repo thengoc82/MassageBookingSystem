@@ -1,9 +1,9 @@
-from flask import request
 from app.blueprints.public import public_bp
-from app.models.shop import Shop
 from app.models.course import Course
+from app.models.shop import Shop
 from app.utils import success_response
 from app.utils.errors import ResourceNotFound
+from flask import request
 
 
 @public_bp.route('/shops/<int:shop_id>/courses', methods=['GET'])

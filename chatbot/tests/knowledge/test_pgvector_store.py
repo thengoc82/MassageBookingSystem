@@ -31,7 +31,6 @@ def test_pgvector_store_init() -> None:
     # This test verifies the interface is correct.
     from chatbot.knowledge.vector_store import VectorStore
 
-    embedding_service = MockEmbeddingService()
     # We can't easily test the constructor without a real DB, but we can test
     # that PgVectorStore is indeed a VectorStore subclass.
     assert issubclass(PgVectorStore, VectorStore)
@@ -41,7 +40,15 @@ def test_pgvector_store_interface() -> None:
     """Test that PgVectorStore implements the VectorStore interface."""
 
     # Check that PgVectorStore has all required methods
-    expected_methods = {'add_chunk', 'add_chunks', 'search', 'clear', 'close', 'get_embedding_service', 'set_embedding_service'}
+    expected_methods = {
+        'add_chunk',
+        'add_chunks',
+        'search',
+        'clear',
+        'close',
+        'get_embedding_service',
+        'set_embedding_service',
+    }
     missing = expected_methods - set(dir(PgVectorStore))
     assert not missing, f"PgVectorStore is missing methods: {missing}"
 

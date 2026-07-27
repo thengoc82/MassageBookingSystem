@@ -1,7 +1,6 @@
 """Tests for gateway — errors and error mapping"""
-import pytest
 
-from gateway.errors import (
+from chatbot.gateway.errors import (
     BookingNotFoundError,
     ChatbotError,
     ChatbotErrorCode,

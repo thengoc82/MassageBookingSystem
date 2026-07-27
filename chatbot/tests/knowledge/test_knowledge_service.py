@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
+import numpy as np
 from chatbot.knowledge.chunking import TextChunk
 from chatbot.knowledge.embedding_service import EmbeddingService
 from chatbot.knowledge.knowledge_service import KnowledgeResult, KnowledgeService
@@ -16,8 +17,6 @@ class MockEmbeddingService(EmbeddingService):
         self._embedding_dim = embedding_dim
 
     def embed_texts(self, texts: List[str]) -> List[np.ndarray]:
-        import numpy as np
-
         embeddings = []
         for i, text in enumerate(texts):
             embedding = np.zeros(self._embedding_dim, dtype=float)

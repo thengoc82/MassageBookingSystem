@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+
 def test_create_booking_directly_returns_201(client, sample_shop, sample_courses, sample_therapists):
     """POST /api/bookings with direct data should return 201 with booking code."""
     course = sample_courses[0]
@@ -46,9 +47,9 @@ def test_create_booking_rejects_missing_phone(client, sample_shop, sample_course
 
 def test_create_booking_fails_for_blocked_customer(client, sample_shop, sample_courses):
     """POST /api/bookings for a blocked customer should fail."""
+    from app.extensions import db
     from app.models.customer import Customer
     from app.models.customer_restriction import CustomerRestriction
-    from app.extensions import db
 
     customer = Customer(phone_number='0999999999', member_rank='Silver')
     db.session.add(customer)

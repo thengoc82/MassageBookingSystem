@@ -28,7 +28,7 @@ def test_chunk_document() -> None:
     assert all(chunk.source_file == doc.source_file for chunk in chunks)
     assert all(chunk.title == doc.title for chunk in chunks)
     assert all(chunk.heading == "Heading" for chunk in chunks)
-    assert "context_heading" in chunks[0].content
+    assert "Heading" in chunks[0].content
 
 
 def test_chunk_empty_document() -> None:

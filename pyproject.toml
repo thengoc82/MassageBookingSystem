@@ -1,4 +1,5 @@
 [tool.ruff]
+src = ["chatbot"]
 line-length = 100
 select = ["E", "F", "I", "W"]
 
@@ -6,4 +7,8 @@ select = ["E", "F", "I", "W"]
 python_version = "3.14"
 ignore_missing_imports = true
 explicit_package_bases = true
-mypy_path = ["chatbot", "spa-booking-api"]
+mypy_path = ["."]
+
+[tool.pytest.ini_options]
+norecursedirs = "spa-booking-api/tests"
+

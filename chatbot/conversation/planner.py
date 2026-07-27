@@ -1,9 +1,9 @@
 # chatbot/conversation/planner.py
+from chatbot.app.llm import LLMService
 from chatbot.models.conversation import Conversation
 from chatbot.models.plan import Plan
 from chatbot.prompts.plan import PLANNER_PROMPT
 from chatbot.tools.registry import ToolRegistry
-from chatbot.app.llm import LLMService
 
 
 class Planner:
@@ -23,8 +23,9 @@ class Planner:
         )
 
         if plan.tool_name:
-            tool = self.tool_registry.get_tool(plan.tool_name)
+            tool = self.tool_registry.get(plan.tool_name)
             if tool and tool.is_write:
+
                 # This is a write tool, the plan is to propose an action, not execute.
                 # The orchestrator will handle this.
                 pass

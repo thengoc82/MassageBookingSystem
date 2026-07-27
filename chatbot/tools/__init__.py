@@ -1,4 +1,4 @@
-from tools.adapter import ToolAdapter
-from tools.base import BaseTool
+from chatbot.tools.adapter import ToolAdapter
+from chatbot.tools.base import BaseTool
 
 __all__ = ["BaseTool", "ToolAdapter"]

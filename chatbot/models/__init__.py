@@ -156,14 +156,23 @@ class CheckEligibilityResponse(BaseModel):
 # FAQ Search
 class FAQSearchRequest(BaseModel):
     query: str = Field(min_length=1)
-    topK: int = Field(default=5, ge=1, le=20)
+    topK: int = Field(default=3, ge=1, le=10)
+
+
+class FAQCitation(BaseModel):
+    """Citation for an FAQ answer."""
+
+    source_file: str
+    document_title: str
+    heading: str | None = None
 
 
 class FAQItem(BaseModel):
-    question: str
-    answer: str
-    category: str | None = None
-    score: float | None = None
+    """A single FAQ answer with citation."""
+
+    content: str
+    score: float
+    citation: FAQCitation
 
 
 class FAQSearchResponse(BaseModel):

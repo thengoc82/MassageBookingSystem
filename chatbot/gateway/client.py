@@ -4,8 +4,8 @@ from typing import Any
 
 import httpx
 
-from gateway.config import GatewayConfig
-from gateway.errors import (
+from chatbot.gateway.config import GatewayConfig
+from chatbot.gateway.errors import (
     ChatbotError,
     ChatbotErrorCode,
     GatewayConnectionError,
@@ -132,10 +132,17 @@ class HTTPClient:
                 await asyncio.sleep(delay)
 
         if isinstance(last_exception, httpx.TimeoutException):
-            raise GatewayTimeoutError(f"Request timed out after {self._config.max_retries + 1} attempts") from last_exception
+            raise GatewayTimeoutError(
+                f"Request timed out after {self._config.max_retries + 1} attempts"
+            ) from last_exception
         if isinstance(last_exception, httpx.ConnectError):
-            raise GatewayConnectionError(f"Connection failed after {self._config.max_retries + 1} attempts") from last_exception
-        raise last_exception or ChatbotError(ChatbotErrorCode.INTERNAL_SERVER_ERROR, "Request failed")
+            raise GatewayConnectionError(
+                f"Connection failed after {self._config.max_retries + 1} attempts"
+            ) from last_exception
+        raise last_exception or ChatbotError(
+            ChatbotErrorCode.INTERNAL_SERVER_ERROR, "Request failed"
+        )
+
 
     async def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._request_with_retry("GET", path, params=params)
@@ -145,6 +152,12 @@ class HTTPClient:
 
     async def patch(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
         return await self._request_with_retry("PATCH", path, json=json)
+
+    async def put(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
+        return await self._request_with_retry("PUT", path, json=json)
+
+    async def delete(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
+        return await self._request_with_retry("DELETE", path, json=json)
 
 
 async def create_client(config: GatewayConfig | None = None) -> HTTPClient:

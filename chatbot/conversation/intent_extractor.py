@@ -1,9 +1,8 @@
 # chatbot/conversation/intent_extractor.py
+from chatbot.app.llm import LLMService
 from chatbot.models.conversation import Conversation
 from chatbot.models.intent import Intent
 from chatbot.prompts.intent import INTENT_EXTRACTION_PROMPT
-
-from chatbot.app.llm import LLMService
 
 
 class IntentExtractor:
