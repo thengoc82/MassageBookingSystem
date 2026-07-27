@@ -17,16 +17,16 @@ export type Message = {
 };
 
 type ChatResponse = {
+  success: boolean;
   session_id: string;
-  message: {
-    role: "assistant";
-    content: string;
-    citations?: { url: string }[];
-    requires_confirmation?: boolean;
-  };
+  message: string;
+  phase?: string;
+  data?: Record<string, unknown>;
+  error?: string | null;
+  // Add other fields that the chatbot might return
 };
 
-const CHAT_API_ENDPOINT = `${process.env.NEXT_PUBLIC_API_URL || ""}/chat`;
+const CHAT_API_ENDPOINT = `${process.env.NEXT_PUBLIC_CHATBOT_URL || ""}/chat`;
 
 /**
  * useChat
@@ -81,36 +81,49 @@ export const useChat = (userId: string | null) => {
           body: JSON.stringify({
             session_id: sessionId,
             user_id: userId,
-            message: {
-              role: "user",
-              content: text,
-            },
+            message: text,
           }),
         });
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(
-            errData.error || `HTTP ${response.status}: Failed to get response`
-          );
+          let errorDetail = `HTTP ${response.status}: Failed to get response`;
+          try {
+            const errData = await response.json();
+            if (errData && errData.error) {
+              errorDetail = errData.error;
+            } else if (errData && errData.message) {
+              errorDetail = errData.message;
+            }
+          } catch (jsonErr) {
+            // response was not JSON, use generic message
+          }
+          throw new Error(errorDetail);
         }
 
         const data: ChatResponse = await response.json();
 
+        // Always display the message from the chatbot if it's a valid JSON response
         addMessage({
           role: "assistant",
-          content: data.message.content,
-          citations: data.message.citations,
+          content: data.message,
         });
 
-        if (data.message.requires_confirmation) {
+        // Preserve phase, session_id, and data
+        // (sessionId is already managed, data is not directly used by useChat but passed through)
+        // phase is used below for pendingConfirmation
+
+        if (data.phase === "confirming_action") {
           setPendingConfirmation(true);
+        } else if (!data.success && data.message) {
+          // If success is false but it's a valid chat response with a message,
+          // display the message normally (already done by addMessage above).
+          // No additional error UI should be shown for this case.
         }
       } catch (err: unknown) {
         const errorMessage =
           err instanceof Error
             ? err.message
-            : "An unknown error occurred.";
+            : `An unknown error occurred: ${String(err)}`;
         setError(errorMessage);
         addMessage({
           role: "assistant",

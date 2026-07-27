@@ -14,6 +14,7 @@ class SessionData(BaseModel):
     session_id: str
     user_id: str | None = None
     conversation_state: dict = Field(default_factory=dict)
+    conversation_history: list[list[str]] = Field(default_factory=list)
     context: dict = Field(default_factory=dict)
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
