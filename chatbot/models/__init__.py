@@ -170,3 +170,74 @@ class FAQSearchResponse(BaseModel):
     success: bool
     data: list[FAQItem]
     message: str
+
+
+# CreateBooking
+class CreateBookingService(BaseModel):
+    personIndex: int
+    courseId: int
+
+
+class CreateBookingAddOn(BaseModel):
+    personIndex: int
+    courseId: int
+
+
+class CreateBookingRequest(BaseModel):
+    shopId: int
+    phoneNumber: str
+    bookingDate: date
+    startTime: time
+    numberOfPeople: int
+    services: list[CreateBookingService]
+    addOns: list[CreateBookingAddOn] | None = None
+    therapistId: int | None = None
+    therapistGender: str | None = Field(default=None, pattern="^(Male|Female)$")
+
+
+class CreateBookingResponse(BaseModel):
+    success: bool
+    bookingId: int | None = None
+    bookingCode: str | None = None
+    message: str | None = None
+
+
+# ModifyBooking
+class ModifyBookingService(BaseModel):
+    personIndex: int
+    courseId: int
+
+
+class ModifyBookingAddOn(BaseModel):
+    personIndex: int
+    courseId: int
+
+
+class ModifyBookingRequest(BaseModel):
+    bookingId: int
+    shopId: int | None = None
+    bookingDate: date | None = None
+    startTime: time | None = None
+    numberOfPeople: int | None = None
+    services: list[ModifyBookingService] | None = None
+    addOns: list[ModifyBookingAddOn] | None = None
+    therapistId: int | None = None
+    therapistGender: str | None = Field(default=None, pattern="^(Male|Female)$")
+
+
+class ModifyBookingResponse(BaseModel):
+    success: bool
+    bookingId: int | None = None
+    message: str | None = None
+
+
+# CancelBooking
+class CancelBookingRequest(BaseModel):
+    bookingId: int
+    reason: str | None = None
+
+
+class CancelBookingResponse(BaseModel):
+    success: bool
+    bookingId: int | None = None
+    message: str | None = None

@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "success": { "type": "boolean" },
+    "bookingId": { "type": "string" },
+    "bookingCode": { "type": "string" },
+    "message": { "type": "string" }
+  },
+  "required": ["success"]
+}
