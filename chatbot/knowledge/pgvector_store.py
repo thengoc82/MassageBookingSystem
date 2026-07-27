@@ -31,13 +31,24 @@ class PgVectorStore(VectorStore):
         self._embedding_dim = embedding_dim
         self._embedding_service = embedding_service
         self._table_name = table_name
-        self._conn = psycopg2.connect(dsn)
+        # Lazy: don't connect at startup. App can boot without PostgreSQL;
+        # DB-backed methods (search, add, clear) will fail loudly if called
+        # and the DB is unreachable, with the underlying psycopg2 error.
+        self._conn: psycopg2.extensions.connection | None = None
+
+    def _connect(self) -> psycopg2.extensions.connection:
+        """Open the connection on first use and ensure the schema exists."""
+        if self._conn is not None and not self._conn.closed:
+            return self._conn
+        self._conn = psycopg2.connect(self._dsn)
         self._conn.autocommit = False
         register_vector(self._conn)
         self._ensure_schema()
+        return self._conn
 
     def _ensure_schema(self) -> None:
         """Create the pgvector extension and the table if they don't exist."""
+        assert self._conn is not None, "connect before _ensure_schema"
         with self._conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute(
@@ -68,7 +79,8 @@ class PgVectorStore(VectorStore):
         if not chunks_with_embeddings:
             return
 
-        with self._conn.cursor() as cur:
+        conn = self._connect()
+        with conn.cursor() as cur:
             for chunk, embedding in chunks_with_embeddings:
                 cur.execute(
                     f"""
@@ -93,7 +105,7 @@ class PgVectorStore(VectorStore):
                         json.dumps(embedding),
                     ),
                 )
-        self._conn.commit()
+        conn.commit()
 
     def search(
         self,
@@ -121,7 +133,8 @@ class PgVectorStore(VectorStore):
             ORDER BY embedding <=> %s::vector
             LIMIT %s
         """
-        with self._conn.cursor() as cur:
+        conn = self._connect()
+        with conn.cursor() as cur:
             cur.execute(sql, params)
             rows = cur.fetchall()
 
@@ -141,9 +154,10 @@ class PgVectorStore(VectorStore):
 
     def clear(self) -> None:
         """Clear all data from the store."""
-        with self._conn.cursor() as cur:
+        conn = self._connect()
+        with conn.cursor() as cur:
             cur.execute(f"DELETE FROM {self._table_name}")
-        self._conn.commit()
+        conn.commit()
 
     def close(self) -> None:
         """Close the database connection."""

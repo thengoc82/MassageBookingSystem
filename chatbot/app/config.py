@@ -15,7 +15,12 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="all-MiniLM-L6-v2")
     embedding_dim: int = Field(default=384, ge=1)
     vector_store_top_k: int = Field(default=5, ge=1)
-    pg_dsn: str = Field(default="postgresql://localhost:5432/chatbot")
+    pg_dsn: str = Field(default="")
+
+
+    # LLM settings
+    openai_api_key: str | None = Field(default=None)
+    openai_model: str = Field(default="gpt-4o")
 
     # Rate limiting settings
     rate_limit_capacity: int = Field(default=20, ge=1)

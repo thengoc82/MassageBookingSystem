@@ -14,5 +14,12 @@ class ToolRegistry:
             raise KeyError(name)
         return self._tools[name]
 
+    def get_tool(self, name: str) -> BaseTool | None:
+        """Return tool by name or None if not registered."""
+        return self._tools.get(name)
+
+    def has(self, name: str) -> bool:
+        return name in self._tools
+
     def list(self) -> list[str]:
         return list(self._tools.keys())
