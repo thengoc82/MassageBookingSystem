@@ -1,13 +1,15 @@
 from typing import Any
 
-from tools.base import BaseTool
+from chatbot.tools.base import BaseTool
 
 
 class ToolAdapter(BaseTool):
     """Adapter to wrap typed tools for registry compatibility."""
 
     def __init__(self, tool: BaseTool) -> None:
-        super().__init__(tool.name)
+        super().__init__(
+            tool.name, tool.RequestModel, tool.ResponseModel, tool.is_write
+        )
         self._tool = tool
 
     async def execute(self, request: Any) -> Any:

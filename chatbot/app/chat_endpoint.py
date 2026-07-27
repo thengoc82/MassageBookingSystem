@@ -4,14 +4,19 @@ from typing import Any
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from app.config import Settings
-from conversation.state import (
+from chatbot.app.config import Settings
+from chatbot.conversation.state import (
     ConversationManager,
     ConversationPhase,
     ConversationState,
 )
-from gateway.client import HTTPClient, create_client
-from models import (
+from chatbot.gateway.client import HTTPClient, create_client
+from chatbot.knowledge import (
+    KnowledgeService,
+    PgVectorStore,
+    SentenceTransformerEmbeddingService,
+)
+from chatbot.models import (
     CheckEligibilityRequest,
     FAQSearchRequest,
     GetTherapistsRequest,
@@ -20,9 +25,9 @@ from models import (
     SearchCoursesRequest,
     SearchShopsRequest,
 )
-from session.store import RedisSessionStore
-from tools.registry import ToolRegistry
-from tools.search_tools import (
+from chatbot.session.store import RedisSessionStore
+from chatbot.tools.registry import ToolRegistry
+from chatbot.tools.search_tools import (
     CheckEligibilityTool,
     FAQSearchTool,
     GetTherapistsTool,
@@ -30,6 +35,11 @@ from tools.search_tools import (
     SearchAvailableSlotsTool,
     SearchCoursesTool,
     SearchShopsTool,
+)
+from chatbot.tools.write_tools import (
+    CancelBookingTool,
+    CreateBookingTool,
+    ModifyBookingTool,
 )
 
 
@@ -70,12 +80,14 @@ class ChatEndpoint:
         session_store: RedisSessionStore | None = None,
         conversation_manager: ConversationManager | None = None,
         tool_registry: ToolRegistry | None = None,
+        knowledge_service: KnowledgeService | None = None,
     ) -> None:
         self._settings = settings or Settings()
         self._http_client = http_client
         self._session_store = session_store
         self._conversation_manager = conversation_manager or ConversationManager()
         self._tool_registry = tool_registry
+        self._knowledge_service = knowledge_service
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -87,14 +99,40 @@ class ChatEndpoint:
         self._session_store = RedisSessionStore(self._settings)
         self._tool_registry = ToolRegistry()
 
-        # Register all tools
-        self._tool_registry.register("searchShops", SearchShopsTool(self._http_client))
-        self._tool_registry.register("searchCourses", SearchCoursesTool(self._http_client))
-        self._tool_registry.register("searchAvailableSlots", SearchAvailableSlotsTool(self._http_client))
-        self._tool_registry.register("getTherapists", GetTherapistsTool(self._http_client))
-        self._tool_registry.register("lookupBooking", LookupBookingTool(self._http_client))
+        self._tool_registry.register(
+            "searchShops", SearchShopsTool(self._http_client)
+        )
+        self._tool_registry.register(
+            "searchCourses", SearchCoursesTool(self._http_client)
+        )
+        self._tool_registry.register(
+            "searchAvailableSlots", SearchAvailableSlotsTool(self._http_client)
+        )
+        self._tool_registry.register(
+            "getTherapists", GetTherapistsTool(self._http_client)
+        )
+        self._tool_registry.register(
+            "lookupBooking", LookupBookingTool(self._http_client)
+        )
+
         self._tool_registry.register("checkEligibility", CheckEligibilityTool(self._http_client))
-        self._tool_registry.register("faqSearch", FAQSearchTool(self._http_client))
+
+        if self._knowledge_service is None:
+            embedding_service = SentenceTransformerEmbeddingService(
+                model_name=self._settings.embedding_model,
+                embedding_dim=self._settings.embedding_dim,
+            )
+            vector_store = PgVectorStore(
+                dsn=self._settings.pg_dsn,
+                embedding_dim=self._settings.embedding_dim,
+                embedding_service=embedding_service,
+            )
+            self._knowledge_service = KnowledgeService(vector_store, embedding_service)
+
+        self._tool_registry.register("faqSearch", FAQSearchTool(self._knowledge_service))
+        self._tool_registry.register("createBooking", CreateBookingTool(self._http_client))
+        self._tool_registry.register("modifyBooking", ModifyBookingTool(self._http_client))
+        self._tool_registry.register("cancelBooking", CancelBookingTool(self._http_client))
 
         self._initialized = True
 
@@ -104,6 +142,8 @@ class ChatEndpoint:
             await self._http_client.close()
         if self._session_store:
             await self._session_store.close()
+        if self._knowledge_service:
+            self._knowledge_service.vector_store.close()
         self._initialized = False
 
     async def process_message(self, request: ChatRequest) -> ChatResponse:
@@ -147,21 +187,56 @@ class ChatEndpoint:
         """Parse user intent from message (deterministic keyword matching for Phase 1)."""
         message_lower = message.lower()
 
-        # Check for explicit tool requests
-        if any(keyword in message_lower for keyword in ["shop", "branch", "location"]) and state.phase == ConversationPhase.GREETING:
+        if state.pending_action:
+            if "confirm" in message_lower or "yes" in message_lower:
+                return "confirm_action"
+            if "cancel" in message_lower or "no" in message_lower:
+                return "cancel_action"
+        if any(
+            keyword in message_lower for keyword in ["shop", "branch", "location"]
+
+        ) and state.phase == ConversationPhase.GREETING:
             return "search_shops"
-        if ("course" in message_lower or "service" in message_lower or "massage" in message_lower) and state.phase in (ConversationPhase.GREETING, ConversationPhase.SEARCHING_SHOPS):
+        if (
+            "course" in message_lower
+            or "service" in message_lower
+            or "massage" in message_lower
+        ) and state.phase in (
+            ConversationPhase.GREETING,
+            ConversationPhase.SEARCHING_SHOPS,
+        ):
             return "search_courses"
-        if ("slot" in message_lower or "time" in message_lower or "available" in message_lower) and state.phase in (ConversationPhase.SEARCHING_COURSES, ConversationPhase.SEARCHING_SLOTS):
+        if (
+            "slot" in message_lower
+            or "time" in message_lower
+            or "available" in message_lower
+        ) and state.phase in (
+            ConversationPhase.SEARCHING_COURSES,
+            ConversationPhase.SEARCHING_SLOTS,
+        ):
             return "search_slots"
-        if "therapist" in message_lower and state.phase in (ConversationPhase.SEARCHING_SLOTS, ConversationPhase.SELECTING_THERAPIST):
+
+        if "therapist" in message_lower and state.phase in (
+            ConversationPhase.SEARCHING_SLOTS,
+            ConversationPhase.SELECTING_THERAPIST,
+        ):
             return "get_therapists"
-        if ("eligibility" in message_lower or "blocked" in message_lower or "phone" in message_lower) and state.phase == ConversationPhase.SELECTING_THERAPIST:
+        if (
+            "eligibility" in message_lower
+            or "blocked" in message_lower
+            or "phone" in message_lower
+        ) and state.phase == ConversationPhase.SELECTING_THERAPIST:
             return "check_eligibility"
-        if "booking" in message_lower and ("lookup" in message_lower or "check" in message_lower) and state.phase == ConversationPhase.GREETING:
+
+        if (
+            "booking" in message_lower
+            and ("lookup" in message_lower or "check" in message_lower)
+            and state.phase == ConversationPhase.GREETING
+        ):
             return "lookup_booking"
         if "faq" in message_lower or "question" in message_lower or "help" in message_lower:
             return "faq_search"
+
         if "reset" in message_lower or "start over" in message_lower:
             return "reset"
 
@@ -177,7 +252,24 @@ class ChatEndpoint:
         """Handle parsed intent."""
         assert self._tool_registry is not None
 
+        if intent == "confirm_action":
+            from chatbot.conversation.tool_orchestrator import ToolOrchestrator
+            orchestrator = ToolOrchestrator(self._tool_registry)
+            try:
+                result = await orchestrator.execute_pending_action(state)
+                state, _ = self._conversation_manager.transition(state, "execute_write")
+                return IntentResponse(True, "Action completed successfully.", state, result)
+            except Exception as e:
+                self._conversation_manager.clear_pending_action(state)
+                return IntentResponse(False, f"Error: {str(e)}", state)
+
+        if intent == "cancel_action":
+            self._conversation_manager.clear_pending_action(state)
+            state = self._conversation_manager.reset(state)
+            return IntentResponse(True, "Action cancelled.", state)
+
         if intent == "reset":
+
             state = self._conversation_manager.reset(state)
             return IntentResponse(True, "Conversation reset. How can I help you?", state)
 
@@ -234,14 +326,18 @@ class ChatEndpoint:
                 return IntentResponse(False, state.error_message or "Invalid state", state)
 
             tool = self._tool_registry.get("searchAvailableSlots")
-            from datetime import date as date_type, time as time_type
+            from datetime import date as date_type
+            from datetime import time as time_type
             slots_request = SearchAvailableSlotsRequest(
                 shopId=context.shop_id or 0,
-                date=date_type.fromisoformat(context.date) if context.date else date_type.today(),
+                date=date_type.fromisoformat(context.date)
+                if context.date
+                else date_type.today(),
                 duration=context.duration or 60,
                 numberOfPeople=context.number_of_people or 1,
                 courseIds=str(context.course_id),
             )
+
             result = await tool.execute(slots_request)
             state.last_tool_result = result.model_dump(mode="json")
             if result.success:
@@ -265,20 +361,29 @@ class ChatEndpoint:
                 return IntentResponse(False, state.error_message or "Invalid state", state)
 
             tool = self._tool_registry.get("getTherapists")
-            from datetime import date as date_type, time as time_type
+            from datetime import date as date_type
+            from datetime import time as time_type
             therapists_request = GetTherapistsRequest(
                 shopId=context.shop_id or 0,
-                date=date_type.fromisoformat(context.date) if context.date else date_type.today(),
-                startTime=time_type.fromisoformat(context.start_time) if context.start_time else time_type(9, 0),
+                date=date_type.fromisoformat(context.date)
+                if context.date
+                else date_type.today(),
+                startTime=time_type.fromisoformat(context.start_time)
+                if context.start_time
+                else time_type(9, 0),
                 duration=context.duration or 60,
             )
+
             result = await tool.execute(therapists_request)
             state.last_tool_result = result.model_dump(mode="json")
             if result.success:
                 therapists = result.data
                 msg = "Available therapists:\n" + "\n".join(
-                    f"- {t.name} ({t.gender}) - {'Available' if t.isAvailable else 'Busy'}" for t in therapists
+                    f"- {t.name} ({t.gender}) - "
+                    f"{'Available' if t.isAvailable else 'Busy'}"
+                    for t in therapists
                 )
+
             else:
                 msg = f"Error: {result.message}"
             return IntentResponse(True, msg, state, state.last_tool_result)
@@ -299,7 +404,11 @@ class ChatEndpoint:
             if result.success:
                 data = result.data
                 if data.isEligible:
-                    msg = f"Eligible! Member rank: {data.memberRank or 'N/A'}, Visits: {data.visitCount}"
+                    msg = (
+                    f"Eligible! Member rank: {data.memberRank or 'N/A'}, "
+                    f"Visits: {data.visitCount}"
+                )
+
                 else:
                     msg = f"Not eligible: {data.blockReason or 'Blocked'}"
             else:
@@ -311,7 +420,12 @@ class ChatEndpoint:
             import re
             booking_code_match = re.search(r"BK\d{12}", message.upper())
             if not booking_code_match:
-                return IntentResponse(False, "Please provide a booking code (format: BKYYYYMMDDXXXX)", state)
+                return IntentResponse(
+                    False,
+                    "Please provide a booking code (format: BKYYYYMMDDXXXX)",
+                    state,
+                )
+
 
             booking_code = booking_code_match.group(0)
             state, ok = self._conversation_manager.transition(state, "lookup_booking")
@@ -326,7 +440,11 @@ class ChatEndpoint:
                 bookings = result.data
                 if bookings:
                     b = bookings[0]
-                    msg = f"Booking {b.bookingCode}: {b.shopName} on {b.bookingDate} at {b.startTime} - {b.status}"
+                    msg = (
+                        f"Booking {b.bookingCode}: {b.shopName} on {b.bookingDate} at "
+                        f"{b.startTime} - {b.status}"
+                    )
+
                 else:
                     msg = "No booking found with that code"
             else:
@@ -347,7 +465,8 @@ class ChatEndpoint:
 
         return IntentResponse(
             False,
-            "I didn't understand that. Try: search shops, search courses, search slots, get therapists, check eligibility, lookup booking, or faq search.",
+            "I didn't understand that. Try: search shops, search courses, search slots, "
+            "get therapists, check eligibility, lookup booking, or faq search.",
             state,
         )
 
