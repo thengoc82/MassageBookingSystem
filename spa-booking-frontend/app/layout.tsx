@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Inter } from "next/font/google";
 import AuthNav from "@/components/AuthNav";
+import ChatWidget from "@/components/chatbot/ChatWidget";
+import Providers from "@/components/Providers";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -37,13 +39,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans`}>
-        <NavBar />
-        {children}
-        <footer className="border-t border-gray-200 bg-gray-50">
-          <div className="container mx-auto px-4 py-8 text-center text-gray-600">
-            <p>&copy; 2026 Massage Booking App. All rights reserved.</p>
-          </div>
-        </footer>
+        <Providers>
+          <NavBar />
+          {children}
+          <ChatWidget />
+          <footer className="border-t border-gray-200 bg-gray-50">
+            <div className="container mx-auto px-4 py-8 text-center text-gray-600">
+              <p>&copy; 2026 Massage Booking App. All rights reserved.</p>
+            </div>
+          </footer>
+        </Providers>
       </body>
     </html>
   );
