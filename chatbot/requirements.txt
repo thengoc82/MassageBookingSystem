@@ -1,0 +1,21 @@
+# Core dependencies
+pydantic
+pydantic-settings
+redis
+openai
+httpx
+typer
+
+# Phase 4: Knowledge system
+pgvector
+sentence-transformers
+psycopg2-binary
+langchain
+beautifulsoup4
+markdown
+frontmatter
+
+# Testing
+pytest
+pytest-asyncio
+pytest-postgresql

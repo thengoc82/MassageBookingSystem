@@ -1,9 +1,12 @@
 # chatbot/tools/search_tools.py
-from gateway.client import HTTPClient
-from gateway.errors import ChatbotError, ChatbotErrorCode
-from models import (
+from chatbot.gateway.client import HTTPClient
+from chatbot.gateway.errors import ChatbotError, ChatbotErrorCode
+from chatbot.knowledge.knowledge_service import KnowledgeService
+from chatbot.models import (
     CheckEligibilityRequest,
     CheckEligibilityResponse,
+    FAQCitation,
+    FAQItem,
     FAQSearchRequest,
     FAQSearchResponse,
     GetTherapistsRequest,
@@ -17,8 +20,7 @@ from models import (
     SearchShopsRequest,
     SearchShopsResponse,
 )
-
-from tools.base import BaseTool
+from chatbot.tools.base import BaseTool
 
 
 class SearchShopsTool(BaseTool[SearchShopsRequest, SearchShopsResponse]):
@@ -55,8 +57,13 @@ class SearchAvailableSlotsTool(BaseTool[SearchAvailableSlotsRequest, SearchAvail
     """Tool to search for available time slots."""
 
     def __init__(self, http_client: HTTPClient) -> None:
-        super().__init__("searchAvailableSlots", SearchAvailableSlotsRequest, SearchAvailableSlotsResponse)
+        super().__init__(
+            "searchAvailableSlots",
+            SearchAvailableSlotsRequest,
+            SearchAvailableSlotsResponse,
+        )
         self._client = http_client
+
 
     async def execute(self, request: SearchAvailableSlotsRequest) -> SearchAvailableSlotsResponse:
         path = f"/shops/{request.shopId}/available-slots"
@@ -111,7 +118,10 @@ class LookupBookingTool(BaseTool[LookupBookingRequest, LookupBookingResponse]):
             path = f"/bookings/{request.bookingCode}"
             try:
                 response = await self._client.get(path)
-                return LookupBookingResponse(success=True, data=[response["data"]], message="Success")
+                return LookupBookingResponse(
+                    success=True, data=[response["data"]], message="Success"
+                )
+
             except ChatbotError:
                 pass
         if request.phoneNumber:
@@ -128,22 +138,41 @@ class CheckEligibilityTool(BaseTool[CheckEligibilityRequest, CheckEligibilityRes
         self._client = http_client
 
     async def execute(self, request: CheckEligibilityRequest) -> CheckEligibilityResponse:
-        response = await self._client.post("/booking-eligibility-checks", json={"phoneNumber": request.phoneNumber})
+        response = await self._client.post(
+            "/booking-eligibility-checks", json={"phoneNumber": request.phoneNumber}
+        )
+
         return CheckEligibilityResponse(**response)
 
 
 class FAQSearchTool(BaseTool[FAQSearchRequest, FAQSearchResponse]):
-    """Tool to search FAQ knowledge base."""
+    """Tool to search the FAQ knowledge base using vector search."""
 
-    def __init__(self, http_client: HTTPClient) -> None:
+    def __init__(self, knowledge_service: KnowledgeService) -> None:
         super().__init__("faqSearch", FAQSearchRequest, FAQSearchResponse)
-        self._client = http_client
+        self._knowledge_service = knowledge_service
 
     async def execute(self, request: FAQSearchRequest) -> FAQSearchResponse:
-        # Note: FAQ endpoint may not exist in Flask API yet
-        # This is a placeholder for the knowledge system in Phase 4
+        if not self._knowledge_service:
+            raise ChatbotError(ChatbotErrorCode.INTERNAL_SERVER_ERROR, "Knowledge service not configured")
+
+        results = self._knowledge_service.query(request.query, top_k=request.topK)
+
+        items = [
+            FAQItem(
+                content=result.content,
+                score=result.score,
+                citation=FAQCitation(
+                    source_file=result.source_file,
+                    document_title=result.title,
+                    heading=result.heading,
+                ),
+            )
+            for result in results
+        ]
+
         return FAQSearchResponse(
             success=True,
-            data=[],
-            message="FAQ search not yet implemented - will be available in Phase 4",
+            data=items,
+            message=f"Found {len(items)} relevant chunks",
         )
