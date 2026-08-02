@@ -51,4 +51,8 @@ def create_app(config_name=None):
     from app.utils.errors import register_error_handlers
     register_error_handlers(app)
 
+    @app.route('/api/health')
+    def health():
+        return {'status': 'ok'}
+
     return app

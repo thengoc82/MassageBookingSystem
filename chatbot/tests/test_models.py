@@ -65,8 +65,12 @@ def test_search_courses_response():
             {
                 "courseId": 1,
                 "courseName": "Thai",
-                "duration": 60,
-                "price": 500000,
+                "durations": [
+                    {
+                        "duration": 60,
+                        "price": 500000
+                    }
+                ],
                 "courseType": "main",
                 "status": "Active",
             }

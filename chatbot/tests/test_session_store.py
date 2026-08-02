@@ -4,12 +4,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from chatbot.app.config import Settings
 from chatbot.session.store import RedisSessionStore, SessionData
+from chatbot.conversation.state import ConversationState
 from pydantic import ValidationError
 
 
 @pytest.fixture
 def store() -> RedisSessionStore:
-    settings = Settings(redis_url="redis://test:6379/0", session_expiration_seconds=60)
+    settings = Settings(redis_url="redis://localhost:6379/0", session_expiration_seconds=60)
     return RedisSessionStore(settings)
 
 
@@ -17,8 +18,7 @@ def test_session_data_defaults() -> None:
     session = SessionData(session_id="test-1")
     assert session.session_id == "test-1"
     assert session.user_id is None
-    assert session.conversation_state == {}
-    assert session.context == {}
+    assert session.conversation_state == ConversationState()
     assert session.created_at > 0
 
 
@@ -97,9 +97,9 @@ async def test_update_context(store: RedisSessionStore) -> None:
     mock_redis.get = AsyncMock(return_value=session_data.model_dump_json())
     mock_redis.setex = AsyncMock()
     with patch.object(store, "_get_redis", return_value=mock_redis):
-        result = await store.update_context("test-1", {"key": "value"})
+        result = await store.update_context("test-1", {"shop_id": "123"})
         assert result is not None
-        assert result.context.get("key") == "value"
+        assert result.conversation_state.booking_context.shop_id == "123"
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_update_conversation_state(store: RedisSessionStore) -> None:
     with patch.object(store, "_get_redis", return_value=mock_redis):
         result = await store.update_conversation_state("test-1", {"phase": "greeting"})
         assert result is not None
-        assert result.conversation_state.get("phase") == "greeting"
+        assert result.conversation_state.phase == "greeting"
 
 
 @pytest.mark.asyncio

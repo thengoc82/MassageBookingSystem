@@ -1,10 +1,14 @@
 import logging
 import time
+import typing
+from typing import Any
 
 import redis.asyncio as redis
 from pydantic import BaseModel, Field
 
-from chatbot.app.config import Settings
+from chatbot.conversation.state import ConversationState
+from chatbot.nlu.models import NLUResult, Ambiguity, Entity
+
 
 logger = logging.getLogger(__name__)
 
@@ -13,20 +17,26 @@ class SessionData(BaseModel):
     """Session data model."""
     session_id: str
     user_id: str | None = None
-    conversation_state: dict = Field(default_factory=dict)
-    context: dict = Field(default_factory=dict)
+    conversation_state: ConversationState = Field(default_factory=ConversationState)
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
+
+
+SessionData.model_rebuild()
+
 
 
 class RedisSessionStore:
     """Redis-backed session storage."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
-        self._settings = settings or Settings()
+    def __init__(self, settings: Any = None) -> None:
+        self._settings = settings
         self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
+        if self._settings is None:
+            from chatbot.app.config import Settings
+            self._settings = Settings()
         if self._redis is None:
             self._redis = redis.from_url(
                 self._settings.redis_url,
@@ -84,22 +94,32 @@ class RedisSessionStore:
         result = await redis_client.delete(key)
         return result > 0
 
-    async def update_context(self, session_id: str, context: dict) -> SessionData | None:
-        """Update session context."""
-        session = await self.get_session(session_id)
-        if session is None:
-            return None
-        session.context.update(context)
-        await self.save_session(session)
-        return session
 
     async def update_conversation_state(
-        self, session_id: str, state: dict
+        self, session_id: str, state_updates: dict[str, Any]
     ) -> SessionData | None:
         """Update conversation state."""
         session = await self.get_session(session_id)
         if session is None:
             return None
-        session.conversation_state.update(state)
+        
+        # Apply updates to the existing state object
+        for key, value in state_updates.items():
+            if hasattr(session.conversation_state, key):
+                setattr(session.conversation_state, key, value)
+        
+        await self.save_session(session)
+        return session
+
+    async def update_context(self, session_id: str, context_updates: dict) -> SessionData | None:
+        """Update booking context."""
+        session = await self.get_session(session_id)
+        if session is None:
+            return None
+        
+        for key, value in context_updates.items():
+            if hasattr(session.conversation_state.booking_context, key):
+                setattr(session.conversation_state.booking_context, key, value)
+        
         await self.save_session(session)
         return session

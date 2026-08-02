@@ -44,7 +44,10 @@ class SearchCoursesTool(BaseTool[SearchCoursesRequest, SearchCoursesResponse]):
 
     async def execute(self, request: SearchCoursesRequest) -> SearchCoursesResponse:
         if request.shopId is None:
-            raise ChatbotError(ChatbotErrorCode.VALIDATION_ERROR, "shopId is required")
+            raise ChatbotError(
+                ChatbotErrorCode.VALIDATION_ERROR,
+                "Please choose a shop first.",
+            )
         path = f"/shops/{request.shopId}/courses"
         params = {}
         if request.type:
@@ -75,7 +78,7 @@ class SearchAvailableSlotsTool(BaseTool[SearchAvailableSlotsRequest, SearchAvail
         if request.startTime:
             params["startTime"] = request.startTime.isoformat()
         if request.courseIds:
-            params["courseIds"] = request.courseIds
+            params["courseIds"] = str(request.courseIds)
         if request.gender:
             params["gender"] = request.gender
         if request.showTherapists:

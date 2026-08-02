@@ -30,13 +30,16 @@ class SearchCoursesRequest(BaseModel):
     type: str | None = Field(default=None, pattern="^(main|addon)$")
 
 
+class CourseDurationInfo(BaseModel):
+    duration: int
+    price: int
+
+
 class CourseInfo(BaseModel):
     courseId: int
     courseName: str
-    duration: int
-    price: int
     courseType: str
-    status: str
+    durations: list[CourseDurationInfo]
 
 
 class SearchCoursesResponse(BaseModel):

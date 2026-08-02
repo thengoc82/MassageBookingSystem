@@ -100,7 +100,10 @@ def test_transition_missing_context() -> None:
     new_state, ok = manager.transition(state, "select_shop")
     assert ok is False
     assert new_state.phase == ConversationPhase.ERROR
-    assert "shop_id" in (new_state.error_message or "")
+    # Error message must not leak internal field names to the user.
+    msg = new_state.error_message or ""
+    assert "shop_id" not in msg
+    assert "select_shop" not in msg
 
 
 def test_reset_state() -> None:

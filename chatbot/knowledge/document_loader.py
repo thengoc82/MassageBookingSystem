@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import frontmatter
+from frontmatter import Frontmatter
 
 
 @dataclass
@@ -24,9 +24,9 @@ class LoadedDocument:
     last_updated: datetime
 
 
-def _extract_title(path: Path, fm_data: frontmatter.Frontmatter, content: str) -> str:
+def _extract_title(path: Path, fm_data: dict, content: str) -> str:
     """Extract title from frontmatter, first H1, or filename."""
-    title = fm_data.get("title")
+    title = fm_data.get("title", "")
     if isinstance(title, str) and title.strip():
         return title.strip()
 
@@ -54,15 +54,18 @@ def _extract_headings(content: str) -> list[str]:
 
 def load_document(path: Path) -> LoadedDocument:
     """Load a single Markdown file from disk."""
-    fm = frontmatter.load(path)
-    title = _extract_title(path, fm, fm.content)
-    headings = _extract_headings(fm.content)
+    post_data = Frontmatter.read_file(path)
+    metadata = post_data["attributes"]
+    content = post_data["body"]
+
+    title = _extract_title(path, metadata, content)
+    headings = _extract_headings(content)
     stat = path.stat()
     last_updated = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
     return LoadedDocument(
         source_file=str(path),
         title=title,
-        content=fm.content,
+        content=content,
         headings=headings,
         last_updated=last_updated,
     )

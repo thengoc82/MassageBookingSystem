@@ -1,7 +1,7 @@
 import json
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.extensions import db
 from app.models.booking import Booking, BookingAddon, BookingTherapist
@@ -310,7 +310,7 @@ class BookingService:
 
     @staticmethod
     def _generate_booking_code():
-        date_str = datetime.utcnow().strftime('%Y%m%d')
+        date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
         random_str = ''.join(random.choices(string.digits, k=4))
         return f'BK{date_str}{random_str}'
 

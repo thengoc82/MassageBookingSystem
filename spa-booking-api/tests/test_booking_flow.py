@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def test_create_booking_directly_returns_201(client, sample_shop, sample_courses, sample_therapists):
     """POST /api/bookings with direct data should return 201 with booking code."""
     course = sample_courses[0]
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     # Use a future date
     future = today + timedelta(days=7)
     date_str = future.strftime('%Y-%m-%d')

@@ -1,6 +1,9 @@
 from datetime import date, time
 
 import pytest
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from app import create_app
 from app.extensions import db
 from app.models import Course, Customer, Shop, Therapist, TherapistShift

@@ -64,8 +64,7 @@ async def test_search_courses_tool() -> None:
             {
                 "courseId": 1,
                 "courseName": "Thai Massage",
-                "duration": 60,
-                "price": 500000,
+                "durations": [{"duration": 60, "price": 500000}],
                 "courseType": "main",
                 "status": "Active",
             }

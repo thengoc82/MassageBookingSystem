@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+from app.extensions import db
 
 from app.models.booking import Booking, BookingTherapist
 from app.models.shop import Shop
@@ -12,13 +14,13 @@ class SlotService:
 
     @staticmethod
     def get_available_slots(shop_id, date, duration, number_of_people, start_time=None, course_ids=None, gender=None, show_therapists=False):
-        shop = Shop.query.get(shop_id)
+        shop = db.session.get(Shop, shop_id)
         if not shop:
             raise ResourceNotFound('Shop')
 
         date_obj = datetime.strptime(date, '%Y-%m-%d').date()
 
-        if date_obj < datetime.utcnow().date():
+        if date_obj < datetime.now(timezone.utc).date():
             raise ValidationError('Date cannot be in the past')
 
         all_therapists = None
