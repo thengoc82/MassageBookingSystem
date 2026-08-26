@@ -1,60 +1,42 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-interface UserInfo {
-  id: number;
-  username: string;
-  role: string;
-  type: string;
-}
-
 export default function AuthNav() {
+  const { user, logout, isLoading } = useAuth();
   const router = useRouter();
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => { setMounted(true); }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const raw = localStorage.getItem('user');
-    if (raw) {
-      try { setUser(JSON.parse(raw)); } catch { setUser(null); }
-    }
-  }, [mounted]);
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    setUser(null);
-    router.push('/');
+    logout();
+    router.push('/login');
   };
 
-  const role = user?.role;
+  if (isLoading) {
+    return <div className="h-8 w-24 rounded bg-gray-700 animate-pulse"></div>;
+  }
 
   return (
     <div className="flex items-center gap-6">
-      {!role && (
+      {user ? (
         <>
-          <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
-          <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
-        </>
-      )}
-      {role === 'admin' && (
-        <Link href="/admin" className="text-white/80 hover:text-white">Admin</Link>
-      )}
-      {role === 'therapist' && (
-        <Link href="/therapist" className="text-white/80 hover:text-white">Therapist</Link>
-      )}
-      <div className="flex items-center gap-3">
-        {user ? (
-          <>
+          {user.role === 'admin' && (
+            <Link href="/admin" className="text-white/80 hover:text-white">Admin</Link>
+          )}
+          {user.role === 'therapist' && (
+            <Link href="/therapist" className="text-white/80 hover:text-white">Therapist</Link>
+          )}
+          {user.role === 'customer' && (
+            <>
+              <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
+              <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
+            </>
+          )}
+          <div className="flex items-center gap-3">
             <span className="text-white/80 text-sm hidden sm:inline">
-              {user.username}
-              <span className="text-white/40 ml-1">({user.type})</span>
+              {user.name}
+              <span className="text-white/40 ml-1">({user.role})</span>
             </span>
             <button
               onClick={handleLogout}
@@ -62,16 +44,20 @@ export default function AuthNav() {
             >
               Logout
             </button>
-          </>
-        ) : (
+          </div>
+        </>
+      ) : (
+        <>
+          <Link href="/dashboard" className="text-white/80 hover:text-white">Book</Link>
+          <Link href="/my-bookings" className="text-white/80 hover:text-white">My Bookings</Link>
           <Link
             href="/login"
             className="text-white/80 hover:text-white text-sm border border-white/20 rounded px-3 py-1"
           >
             Login
           </Link>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

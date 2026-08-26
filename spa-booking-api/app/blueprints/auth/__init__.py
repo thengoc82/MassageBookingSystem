@@ -1,3 +1,4 @@
+from app.models.customer import Customer
 from app.models.therapist import Therapist
 from app.models.user import User
 from app.utils import success_response
@@ -51,6 +52,26 @@ def login():
                 'username': therapist.username or therapist.name,
                 'role': 'therapist',
                 'type': 'therapist'
+            }
+        }, message='Login successful')
+    
+    customer = Customer.query.filter_by(username=data['username']).first()
+
+    if customer and customer.check_password(data['password']):
+        access_token = create_access_token(identity={
+            'user_id': customer.id,
+            'username': customer.username,
+            'role': 'customer',
+            'type': 'customer'
+        })
+        
+        return success_response({
+            'access_token': access_token,
+            'user': {
+                'id': customer.id,
+                'username': customer.username,
+                'role': 'customer',
+                'type': 'customer'
             }
         }, message='Login successful')
 

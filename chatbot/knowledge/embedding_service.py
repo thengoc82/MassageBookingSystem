@@ -10,31 +10,59 @@ from typing import cast
 import numpy as np
 
 
+from sentence_transformers import SentenceTransformer
+from openai import OpenAI
+
+
 class EmbeddingService(ABC):
     """Abstract base class for embedding services."""
 
+    @property
     @abstractmethod
-    def embed_texts(self, texts: list[str]) -> list[np.ndarray]:
+    def embedding_dim(self) -> int:
+        """Get the embedding dimension."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a list of texts."""
         raise NotImplementedError
 
 
-class SentenceTransformerEmbeddingService(EmbeddingService):
-    """Embedding service using sentence-transformers."""
+import logging
 
-    def __init__(self, model_name: str, embedding_dim: int) -> None:
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as e:
-            raise ImportError(
-                "SentenceTransformer is not installed. "
-                "Please run `pip install sentence-transformers`."
-            ) from e
+logger = logging.getLogger(__name__)
 
-        self._model = SentenceTransformer(model_name)
+class OpenAIEmbeddingService(EmbeddingService):
+    """Embedding service using OpenAI's API."""
+
+    def __init__(self, api_key: str, model_name: str, embedding_dim: int) -> None:
+        self._client = OpenAI(api_key=api_key)
+        self._model_name = model_name
         self._embedding_dim = embedding_dim
 
-    def embed_texts(self, texts: list[str]) -> list[np.ndarray]:
-        """Embed a list of texts using the configured model."""
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        from sentence_transformers import SentenceTransformer
+
+class SentenceTransformerEmbeddingService(EmbeddingService):
+    """Embedding service using a local sentence-transformer model."""
+
+    def __init__(self, model_name: str) -> None:
+        self._model = SentenceTransformer(model_name)
+        self._embedding_dim = self._model.get_sentence_embedding_dimension()
+
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
         embeddings = self._model.encode(texts, convert_to_numpy=True)
-        return cast(list[np.ndarray], embeddings)
+        return [embedding.tolist() for embedding in embeddings]
+
+

@@ -12,7 +12,7 @@ with app.app_context():
     # First, let's check what tables exist
     from sqlalchemy import text
     try:
-        result = db.session.execute(text('SELECT name FROM sqlite_master WHERE type="table"'))
+        result = db.session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema='public'"))
         existing_tables = [row[0] for row in result]
         print(f'Existing tables: {existing_tables}')
     except Exception as e:
@@ -29,7 +29,7 @@ with app.app_context():
 
     # Check all tables again
     try:
-        result = db.session.execute(text('SELECT name FROM sqlite_master WHERE type="table"'))
+        result = db.session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema='public'"))
         tables = [row[0] for row in result]
         print(f'Tables created: {tables}')
 

@@ -50,7 +50,8 @@ _PHRASE_PATTERNS: list[tuple[re.Pattern[str], Intent, float]] = [
     (re.compile(r"\b(lookup|check|find|view|show)\b.*\b(my\s+)?(booking|reservation|appointment)\b", re.I), Intent.LOOKUP_BOOKING, 0.85),
     (re.compile(r"\b(what\s+are\s+my|where\s+is\s+my)\b.*\b(bookings?|reservations?)\b", re.I), Intent.LOOKUP_BOOKING, 0.9),
     # FAQ.
-    (re.compile(r"\b(what\s+time|when\s+do\s+you|hours|opening|closing|open\b|close\b|how much|price|cost|fee|payment|policy|refund|cancel\s+policy)\b", re.I), Intent.FAQ, 0.85),
+    (re.compile(r"\b(i have a question)\b", re.I), Intent.FAQ, 0.95),
+     (re.compile(r"\b(what\s+time|when\s+do\s+you|hours|opening|closing|open\b|close\b|how much|price|cost|fee|payment|policy|refund|cancel\s+policy)\b", re.I), Intent.FAQ, 0.85),
     # Create booking.
     (re.compile(r"\b(i\s+want|i\s+need|i'?d\s+like|i\s+would\s+like|need|want|get\s+me|let'?s|please)\b.*\b(massage|booking|appointment|reservation|schedule|session|treatment)\b", re.I), Intent.CREATE_BOOKING, 0.9),
     (re.compile(r"\b(book|reserve|schedule)\b.*\b(me|for\s+me|a|massage|appointment|reservation|session|treatment)\b", re.I), Intent.CREATE_BOOKING, 0.9),

@@ -64,10 +64,27 @@ class NLU:
         state = state or None
         text = message or ""
         stripped = text.strip()
+        lower_stripped = stripped.lower()
 
         # 1. Intent.
         intent, confidence = classify_intent(stripped)
         logger.info(f"Initial intent: {intent} with confidence {confidence}")
+
+        # --- FIX STARTS HERE ---
+        # Heuristic to detect if the message is a question and likely an FAQ.
+        # If the message starts with a question word and has a question mark,
+        # we override the intent to FAQ. This is a simple but effective way
+        # to prevent the keyword-based classifier from misinterpreting
+        # questions like "How can I book?" as a command to start booking.
+        question_words = ("what", "how", "can i", "do you", "what is", "is there")
+        if lower_stripped.endswith("?") or any(lower_stripped.startswith(q) for q in question_words):
+             # If the original intent was something else with low confidence,
+             # and it looks like a question, it's probably an FAQ.
+            if intent != Intent.FAQ:
+                logger.info(f"Message '{stripped}' looks like a question. Overriding intent from {intent} to FAQ.")
+                intent = Intent.FAQ
+                confidence = 0.9  # Boost confidence for this heuristic
+        # --- FIX ENDS HERE ---
 
         # 2. Detect correction.
         is_correction = detect_correction(stripped)

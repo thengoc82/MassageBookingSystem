@@ -1,10 +1,9 @@
 import { AuthProvider } from "@/contexts/AuthContext";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Inter } from "next/font/google";
-import AuthNav from "@/components/AuthNav";
 import ChatWidget from "@/components/chatbot/ChatWidget";
 import "./globals.css";
+import NavBar from "@/components/NavBar";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -12,24 +11,6 @@ export const metadata: Metadata = {
   title: "AI Massage Booking",
   description: "Smart booking system for massage appointments",
 };
-
-function NavBar() {
-  return (
-    <>
-      <nav className="bg-[#031050]">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-                <Link href="/" className="text-2xl font-bold text-white">
-                Massage Booking App
-              </Link>
-              <AuthNav />
-          </div>
-        </div>
-      </nav>
-      <div className="h-0.5 bg-gradient-to-r from-[#1E3A5F] via-[#5B7FAF] to-[#1E3A5F]" />
-    </>
-  );
-}
 
 export default function RootLayout({
   children,

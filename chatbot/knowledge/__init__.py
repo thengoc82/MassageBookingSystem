@@ -9,7 +9,7 @@ from chatbot.knowledge.document_loader import (
 )
 from chatbot.knowledge.embedding_service import (
     EmbeddingService,
-    SentenceTransformerEmbeddingService,
+    OpenAIEmbeddingService,
 )
 from chatbot.knowledge.knowledge_service import KnowledgeResult, KnowledgeService
 from chatbot.knowledge.pgvector_store import PgVectorStore
@@ -24,7 +24,7 @@ __all__ = [
     "load_document",
     "load_documents",
     "EmbeddingService",
-    "SentenceTransformerEmbeddingService",
+    "OpenAIEmbeddingService",
     "KnowledgeResult",
     "KnowledgeService",
     "PgVectorStore",

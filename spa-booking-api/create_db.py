@@ -18,7 +18,7 @@ with app.app_context():
 
     # Verify booking_therapists table was created
     try:
-        result = db.session.execute(text('SELECT name FROM sqlite_master WHERE type="table" AND name="booking_therapists"'))
+        result = db.session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='booking_therapists'"))
         tables = [row[0] for row in result]
         if 'booking_therapists' in tables:
             print('✓ booking_therapists table created successfully!')
@@ -29,7 +29,7 @@ with app.app_context():
 
     # List all tables
     try:
-        result = db.session.execute(text('SELECT name FROM sqlite_master WHERE type="table"'))
+        result = db.session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema='public'"))
         tables = [row[0] for row in result]
         print(f'Tables created: {tables}')
     except Exception as e:

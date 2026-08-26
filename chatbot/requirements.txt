@@ -5,6 +5,7 @@ redis
 openai
 httpx
 typer
+uvicorn
 
 # Phase 4: Knowledge system
 pgvector
@@ -18,4 +19,6 @@ frontmatter>=2.0.0
 # Testing
 pytest
 pytest-asyncio
+python-dotenv
+
 

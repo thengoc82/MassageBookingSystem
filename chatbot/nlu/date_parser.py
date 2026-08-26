@@ -34,10 +34,11 @@ MONTHS = {
 SPECIAL_TOKENS = {"earliest", "latest", "today", "tomorrow"}
 
 
-def parse_date(text: str, today: Optional[date] = None) -> tuple[Optional[str], Optional[str]]:
+def parse_date(text: str, consumed_spans: list[tuple[int, int]], today: Optional[date] = None) -> tuple[Optional[str], Optional[str]]:
     """Parse a string into an ISO date, a relative tag, or None.
 
     Returns a tuple of (value, raw_text_matched) or (None, None).
+    Checks against consumed_spans to avoid re-matching consumed text.
 
     Examples:
         "today"           -> "2026-07-29"
@@ -56,106 +57,95 @@ def parse_date(text: str, today: Optional[date] = None) -> tuple[Optional[str], 
         "3 Aug 2026"      -> "2026-08-03"
     """
     if text is None:
-        return None
+        return None, None
     t = text.strip().lower()
     if not t:
         return None, None
 
     today = today or datetime.now().date()
 
+    # Helper to check for span overlaps
+    def is_consumed(span):
+        return any(s < span[1] and e > span[0] for s, e in consumed_spans)
+
+    # ISO format YYYY-MM-DD.
+    for iso_match in re.finditer(r"\b(\d{4}-\d{2}-\d{2})\b", t):
+        if not is_consumed(iso_match.span()):
+            try:
+                dt = datetime.strptime(iso_match.group(1), "%Y-%m-%d").date()
+                return dt.isoformat(), iso_match.group(0)
+            except ValueError:
+                pass
+
+    # Slash format DD/MM/YYYY or MM/DD/YYYY.
+    for slash_match in re.finditer(r"\b(\d{1,2}/\d{1,2}/\d{4})\b", t):
+        if not is_consumed(slash_match.span()):
+            try:
+                dt = datetime.strptime(slash_match.group(0), "%d/%m/%Y").date()
+                return dt.isoformat(), slash_match.group(0)
+            except ValueError:
+                try:
+                    dt = datetime.strptime(slash_match.group(0), "%m/%d/%Y").date()
+                    return dt.isoformat(), slash_match.group(0)
+                except ValueError:
+                    pass
+
+    # "3 Aug" / "3 Aug 2026" / "August 3" / "August 3 2026".
+    dmy, raw = _parse_day_month_year(t, today, consumed_spans)
+    if dmy:
+        return dmy.isoformat(), raw
+
+    # --- Relative dates ---
+    # NOTE: These are less specific and should come after absolute formats.
+    
     # Special-token exact match first (whole input is a tag/date).
     if t in SPECIAL_TOKENS:
-        if t in {"earliest", "latest"}:
-            return t, t
-        if t == "today":
-            return today.isoformat(), t
-        if t == "tomorrow":
-            return (today + timedelta(days=1)).isoformat(), t
+        span = (0, len(t))
+        if not is_consumed(span):
+            if t in {"earliest", "latest"}:
+                return t, t
+            if t == "today":
+                return today.isoformat(), t
+            if t == "tomorrow":
+                return (today + timedelta(days=1)).isoformat(), t
 
     # Substring detection for relative dates inside a longer message.
     # Order matters: more specific patterns first.
-    if "earliest" in t:
-        return "earliest", "earliest"
-    if "latest" in t:
-        return "latest", "latest"
-    if "yesterday" in t:
-        return (today - timedelta(days=1)).isoformat(), "yesterday"
-    if t in {"this weekend", "the weekend", "weekend"}:
-        days_ahead = (5 - today.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
-        return (today + timedelta(days=days_ahead)).isoformat(), "weekend"
-    if "tomorrow" in t:
-        return (today + timedelta(days=1)).isoformat(), "tomorrow"
-    if "today" in t:
-        return today.isoformat(), "today"
-    if "tonight" in t:
-        return "tonight", "tonight"
-
+    patterns = {
+        "earliest": "earliest",
+        "latest": "latest",
+        "yesterday": (today - timedelta(days=1)).isoformat(),
+        "this weekend": (today + timedelta(days=(5 - today.weekday()) % 7 if (5 - today.weekday()) % 7 != 0 else 7)).isoformat(),
+        "the weekend": (today + timedelta(days=(5 - today.weekday()) % 7 if (5 - today.weekday()) % 7 != 0 else 7)).isoformat(),
+        "weekend": (today + timedelta(days=(5 - today.weekday()) % 7 if (5 - today.weekday()) % 7 != 0 else 7)).isoformat(),
+        "tomorrow": (today + timedelta(days=1)).isoformat(),
+        "today": today.isoformat(),
+        "tonight": "tonight"
+    }
+    for keyword, value in patterns.items():
+        for match in re.finditer(rf"\b{keyword}\b", t):
+            if not is_consumed(match.span()):
+                return value, keyword
+    
     # "next week" → next Monday.
-    if t == "next week":
-        days_ahead = (0 - today.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
-        return (today + timedelta(days=days_ahead)).isoformat(), "next week"
-
-    # "next <weekday>" / "next <month> <day>".
-    next_match = re.match(r"^next\s+(\w+)(?:\s+(\d+))?$", t)
-    if next_match:
-        word = next_match.group(1)
-        if word in WEEKDAYS:
-            target = WEEKDAYS.index(word)
-            days_ahead = (target - today.weekday() + 7) % 7
+    for match in re.finditer(r"\bnext week\b", t):
+        if not is_consumed(match.span()):
+            days_ahead = (0 - today.weekday()) % 7
             if days_ahead == 0:
                 days_ahead = 7
-            return (today + timedelta(days=days_ahead)).isoformat(), next_match.group(0)
-        if word in MONTHS:
-            day = int(next_match.group(2) or 1)
-            resolved_date = _resolve_month_day(word, day, today)
-            if resolved_date:
-                return resolved_date.isoformat(), next_match.group(0)
+            return (today + timedelta(days=days_ahead)).isoformat(), "next week"
 
-    # "this <weekday>".
-    this_match = re.match(r"^this\s+(\w+)$", t)
-    if this_match:
-        word = this_match.group(1)
-        if word in WEEKDAYS:
-            target = WEEKDAYS.index(word)
-            days_ahead = (target - today.weekday() + 7) % 7
-            if days_ahead == 0:
-                days_ahead = 7
-            return (today + timedelta(days=days_ahead)).isoformat(), this_match.group(0)
-
-    # Plain weekday (anywhere in text).
+    # "next <weekday>" / "this <weekday>" / "<weekday>"
     for idx, day_name in enumerate(WEEKDAYS):
-        if day_name in t:
-            days_ahead = (idx - today.weekday() + 7) % 7
-            if days_ahead == 0:
-                days_ahead = 7
-            return (today + timedelta(days=days_ahead)).isoformat(), day_name
-
-    # ISO format YYYY-MM-DD.
-    iso_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", t)
-    if iso_match:
-        try:
-            dt = datetime.strptime(iso_match.group(1), "%Y-%m-%d").date()
-            return dt.isoformat(), iso_match.group(0)
-        except ValueError:
-            pass
-
-    # Slash format DD/MM/YYYY or MM/DD/YYYY.
-    slash_match = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b", t)
-    if slash_match:
-        try:
-            dt = datetime.strptime(slash_match.group(0), "%d/%m/%Y").date()
-            return dt.isoformat(), slash_match.group(0)
-        except ValueError:
-            pass
-
-    # "3 Aug" / "3 Aug 2026" / "August 3" / "August 3 2026".
-    dmy, raw = _parse_day_month_year(t, today)
-    if dmy:
-        return dmy.isoformat(), raw
+        for match in re.finditer(rf"\b(next\s+|this\s+)?{day_name}\b", t):
+            if not is_consumed(match.span()):
+                is_next = match.group(1) and "next" in match.group(1)
+                days_ahead = (idx - today.weekday() + 7) % 7
+                if days_ahead == 0 and not is_next: # Today
+                    days_ahead = 7 
+                if is_next:
+                    days_ahead += 7
+                return (today + timedelta(days=days_ahead)).isoformat(), match.group(0)
 
     return None, None
 
@@ -177,30 +167,34 @@ def _resolve_month_day(month: str, day: int, today: date) -> Optional[date]:
     return candidate
 
 
-def _parse_day_month_year(text: str, today: date) -> tuple[Optional[date], Optional[str]]:
+def _parse_day_month_year(text: str, today: date, consumed_spans: list[tuple[int, int]]) -> tuple[Optional[date], Optional[str]]:
     """Accepts '3 Aug', '3 Aug 2026', 'August 3', 'August 3 2026', 'Aug 3rd'.
     Returns (date, raw_text) or (None, None).
     """
+    
+    def is_consumed(span):
+        return any(s < span[1] and e > span[0] for s, e in consumed_spans)
+
     # Day + month.
-    m = re.search(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)(?:\s+(\d{4}))?\b", text)
-    if m and m.group(2) in MONTHS:
-        day = int(m.group(1))
-        month_num = MONTHS[m.group(2)]
-        year = int(m.group(3)) if m.group(3) else today.year
-        try:
-            return date(year, month_num, day), m.group(0)
-        except ValueError:
-            pass
+    for m in re.finditer(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)(?:\s+(\d{4}))?\b", text):
+        if m.group(2) in MONTHS and not is_consumed(m.span()):
+            day = int(m.group(1))
+            month_num = MONTHS[m.group(2)]
+            year = int(m.group(3)) if m.group(3) else today.year
+            try:
+                return date(year, month_num, day), m.group(0)
+            except ValueError:
+                pass
 
     # Month + day.
-    m = re.search(r"\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?\b", text)
-    if m and m.group(1) in MONTHS:
-        day = int(m.group(2))
-        month_num = MONTHS[m.group(1)]
-        year = int(m.group(3)) if m.group(3) else today.year
-        try:
-            return date(year, month_num, day), m.group(0)
-        except ValueError:
-            pass
+    for m in re.finditer(r"\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?\b", text):
+        if m.group(1) in MONTHS and not is_consumed(m.span()):
+            day = int(m.group(2))
+            month_num = MONTHS[m.group(1)]
+            year = int(m.group(3)) if m.group(3) else today.year
+            try:
+                return date(year, month_num, day), m.group(0)
+            except ValueError:
+                pass
 
     return None, None

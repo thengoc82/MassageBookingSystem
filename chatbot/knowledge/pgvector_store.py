@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List
+import numpy as np
 
 import psycopg2
 from pgvector.psycopg2 import register_vector
@@ -33,8 +34,8 @@ class PgVectorStore(VectorStore):
         self._table_name = table_name
         self._conn = psycopg2.connect(dsn)
         self._conn.autocommit = False
-        register_vector(self._conn)
         self._ensure_schema()
+        register_vector(self._conn)
 
     def _ensure_schema(self) -> None:
         """Create the pgvector extension and the table if they don't exist."""
@@ -70,11 +71,11 @@ class PgVectorStore(VectorStore):
 
         with self._conn.cursor() as cur:
             for chunk, embedding in chunks_with_embeddings:
-                cur.execute(
+                 cur.execute(
                     f"""
                     INSERT INTO {self._table_name}
                         (chunk_id, source_file, title, heading, content, last_updated, embedding)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (chunk_id) DO UPDATE SET
                         source_file = EXCLUDED.source_file,
                         title = EXCLUDED.title,
@@ -90,7 +91,7 @@ class PgVectorStore(VectorStore):
                         chunk.heading,
                         chunk.content,
                         chunk.last_updated,
-                        json.dumps(embedding),
+                        embedding,
                     ),
                 )
         self._conn.commit()
@@ -101,9 +102,19 @@ class PgVectorStore(VectorStore):
         top_k: int,
         filter: Dict[str, Any] | None = None,  # noqa: A002
     ) -> list[tuple[TextChunk, float]]:
-        """Search for similar chunks using cosine similarity."""
+        logger.info("Starting search...")
+        logger.info(f"Query embedding length: {len(query_embedding)}")
+        logger.info(f"Top K: {top_k}")
+        logger.info(f"Filter: {filter}")
+
+        if not query_embedding:
+            logger.error("Query embedding is empty.")
+            return []
+
+        """Search for similar chunks using cosine distance."""
         where_clauses = []
-        params: List[Any] = [json.dumps(query_embedding), top_k]
+        embedding_array = np.array(query_embedding)
+        params: List[Any] = [embedding_array, top_k]
         if filter:
             if "title" in filter:
                 where_clauses.append("title = %s")
@@ -113,17 +124,31 @@ class PgVectorStore(VectorStore):
                 params.append(filter["source_file"])
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        
+        # The fix: increase probes for the approximate index to get more accurate results.
+        # For a small dataset, this is a good tradeoff. For very large datasets,
+        # we might need a more sophisticated indexing strategy.
         sql = f"""
-            SELECT chunk_id, source_file, title, heading, content, last_updated,
-                   1 - (embedding <=> %s::vector) AS similarity
-            FROM {self._table_name}
-            {where_sql}
-            ORDER BY embedding <=> %s::vector
-            LIMIT %s
+             SET LOCAL ivfflat.probes = 10;
+             SELECT chunk_id, source_file, title, heading, content, last_updated,
+                    1 - (embedding <=> %s::vector) AS similarity
+             FROM {self._table_name}
+             {where_sql}
+             ORDER BY similarity DESC
+             LIMIT %s
         """
+        logger.info(f"Executing search with SQL: {sql}")
+        logger.info(f"Parameters (excluding embedding): {[p for p in params if not isinstance(p, np.ndarray)]}")
+
         with self._conn.cursor() as cur:
             cur.execute(sql, params)
             rows = cur.fetchall()
+        logger.info(f"Found {len(rows)} rows.")
+        
+        # Log all retrieved chunks and their scores for debugging
+        for i, row in enumerate(rows):
+            _, _, title, _, content, _, similarity = row
+            logger.info(f"  Rank {i+1}: Similarity={similarity:.4f}, Title='{title}', Content='{content[:100]}...'")
 
         results: list[tuple[TextChunk, float]] = []
         for row in rows:
@@ -137,6 +162,8 @@ class PgVectorStore(VectorStore):
                 last_updated=last_updated,
             )
             results.append((chunk, similarity))
+            
+        logger.info(f"Returning {len(results)} results sorted by similarity DESC.")
         return results
 
     def clear(self) -> None:

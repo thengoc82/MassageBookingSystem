@@ -15,7 +15,7 @@ export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-6 right-6 z-50">
       {isOpen ? (
         <ChatWindow onClose={() => setIsOpen(false)} />
       ) : (
@@ -23,9 +23,9 @@ export default function ChatWidget() {
           type="button"
           onClick={() => setIsOpen(true)}
           aria-label="Open chat"
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-lg transition-transform hover:scale-105 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-indigo-300"
         >
-          <MessageCircle size={24} />
+          <MessageCircle size={32} strokeWidth={2} />
         </button>
       )}
     </div>

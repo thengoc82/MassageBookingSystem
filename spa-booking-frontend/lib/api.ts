@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
 
 async function handleResponse(r: Response) {
   const data = await r.json();
@@ -15,7 +15,7 @@ async function handleResponse(r: Response) {
 }
 
 function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -29,71 +29,57 @@ async function authFetch(url: string, options: RequestInit = {}) {
   return handleResponse(response);
 }
 
-export async function login(data: any) {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const result = await handleResponse(response);
-  return result;
-}
-
 export const api = {
   shops: {
-    getAll: () => fetch(`${API_BASE_URL}/shops`).then(handleResponse),
-    getById: (id: number) => fetch(`${API_BASE_URL}/shops/${id}`).then(handleResponse),
+    getAll: () => authFetch(`${API_BASE_URL}/shops`),
+    getById: (id: number) => authFetch(`${API_BASE_URL}/shops/${id}`),
     getCourses: (shopId: number, type?: string) => {
       const params = type ? `?type=${type}` : '';
-      return fetch(`${API_BASE_URL}/shops/${shopId}/courses${params}`).then(handleResponse);
+      return authFetch(`${API_BASE_URL}/shops/${shopId}/courses${params}`);
     },
     getAvailableSlots: (shopId: number, params: any) => {
       const queryString = new URLSearchParams(params).toString();
-      return fetch(`${API_BASE_URL}/shops/${shopId}/available-slots?${queryString}`).then(handleResponse);
+      return authFetch(`${API_BASE_URL}/shops/${shopId}/available-slots?${queryString}`);
     },
     getAvailableTherapists: (shopId: number, params: any) => {
       const queryString = new URLSearchParams(params).toString();
-      return fetch(`${API_BASE_URL}/shops/${shopId}/available-therapists?${queryString}`).then(handleResponse);
+      return authFetch(`${API_BASE_URL}/shops/${shopId}/available-therapists?${queryString}`);
     }
   },
 
   bookings: {
-    create: (data: any) => fetch(`${API_BASE_URL}/bookings`, {
+    create: (data: any) => authFetch(`${API_BASE_URL}/bookings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
-    }).then(handleResponse),
+    }),
 
     getAll: (params?: any) => {
       const queryString = params ? new URLSearchParams(params).toString() : '';
-      return fetch(`${API_BASE_URL}/bookings?${queryString}`).then(handleResponse);
+      return authFetch(`${API_BASE_URL}/bookings?${queryString}`);
     },
 
-    getById: (id: number) => fetch(`${API_BASE_URL}/bookings/${id}`).then(handleResponse),
+    getById: (id: number) => authFetch(`${API_BASE_URL}/bookings/${id}`),
 
-    update: (id: number, data: any) => fetch(`${API_BASE_URL}/bookings/${id}`, {
+    update: (id: number, data: any) => authFetch(`${API_BASE_URL}/bookings/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
-    }).then(handleResponse),
+    }),
 
-    cancel: (id: number) => fetch(`${API_BASE_URL}/bookings/${id}/cancel`, {
+    cancel: (id: number) => authFetch(`${API_BASE_URL}/bookings/${id}/cancel`, {
       method: 'PATCH'
-    }).then(handleResponse),
+    }),
 
-    checkEligibility: (phoneNumber: string) => fetch(`${API_BASE_URL}/booking-eligibility-checks`, {
+    checkEligibility: (phoneNumber: string) => authFetch(`${API_BASE_URL}/booking-eligibility-checks`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phoneNumber })
-    }).then(handleResponse)
+    })
   },
 
   auth: {
-    login: (username: string, password: string) => fetch(`${API_BASE_URL}/auth/login`, {
+    login: (username: string, password: string) => authFetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
-    }).then(handleResponse)
+    })
   },
 
   admin: {
@@ -147,5 +133,15 @@ export const api = {
     },
     checkinBooking: (id: number) => authFetch(`${API_BASE_URL}/therapists/bookings/${id}/checkin`, { method: 'PATCH' }),
     checkoutBooking: (id: number) => authFetch(`${API_BASE_URL}/therapists/bookings/${id}/checkout`, { method: 'PATCH' })
+  },
+
+  chat: {
+    sendMessage: (body: any) => {
+      const CHATBOT_API_URL = process.env.NEXT_PUBLIC_CHATBOT_API_URL || 'http://localhost:8000';
+      return authFetch(`${CHATBOT_API_URL}/chat`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+    }
   }
 };

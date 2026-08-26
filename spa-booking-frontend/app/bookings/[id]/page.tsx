@@ -46,6 +46,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     api.bookings.getById(Number(id)).then((res: any) => {
       const data = res?.data || res;
+      console.log('Booking response:', data);
       setBooking(data);
     }).catch((err: any) => {
       setError(err.message || 'Failed to load booking');
@@ -74,6 +75,11 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
   const prefs = booking.preferences as Record<string, any> | undefined;
   const services = booking.services as BookingServiceDetail[] | undefined;
   const addons = booking.addOns as BookingServiceDetail[] | undefined;
+  const allServices = [
+    ...(services || []),
+    ...(addons || []),
+  ];
+  console.log('Services rendered:', allServices);
 
   return (
     <div className="min-h-screen bg-[#F5F7FA] py-8">
@@ -121,32 +127,20 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Services */}
-        {services && services.length > 0 && (
+        {allServices.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <SectionHeader title="Services" />
-            <div className="space-y-1.5">
-              {services.map((s, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{s.courseName || `Service #${s.courseId}`}</span>
-                  <span className="text-gray-400 text-xs">Person {s.personIndex}</span>
-                </div>
+            <ul className="space-y-2">
+              {allServices.map((s, i) => (
+                <li key={i} className="flex items-center text-sm">
+                  <span className="text-gray-500 mr-2">•</span>
+                  <span className="text-gray-800 font-medium">{s.courseName || `Service #${s.courseId}`}</span>
+                  {booking.numberOfPeople > 1 && (
+                    <span className="ml-auto text-gray-400 text-xs">Person {s.personIndex}</span>
+                  )}
+                </li>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* Addons */}
-        {addons && addons.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <SectionHeader title="Add-ons" />
-            <div className="space-y-1.5">
-              {addons.map((a, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{a.courseName || `Addon #${a.courseId}`}</span>
-                  <span className="text-gray-400 text-xs">Person {a.personIndex}</span>
-                </div>
-              ))}
-            </div>
+            </ul>
           </div>
         )}
 

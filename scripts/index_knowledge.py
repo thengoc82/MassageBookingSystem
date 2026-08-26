@@ -41,8 +41,9 @@ def index_knowledge(settings: Settings) -> int:
 
     embedding_service = SentenceTransformerEmbeddingService(
         model_name=settings.embedding_model,
-        embedding_dim=settings.embedding_dim,
     )
+
+    settings.embedding_dim = embedding_service.embedding_dim
 
     vector_store = PgVectorStore(
         dsn=settings.pg_dsn,
@@ -71,7 +72,7 @@ def index_knowledge(settings: Settings) -> int:
         embeddings = embedding_service.embed_texts(texts)
 
         logger.info("Storing chunks and embeddings in vector store")
-        chunks_with_embeddings = list(zip(all_chunks, [emb.tolist() for emb in embeddings]))
+        chunks_with_embeddings = list(zip(all_chunks, embeddings))
         vector_store.add_chunks(chunks_with_embeddings)
 
         logger.info("Successfully indexed %d chunks", len(all_chunks))
@@ -125,6 +126,8 @@ def main() -> int:
         settings.chunk_overlap = args.chunk_overlap
     if args.embedding_model:
         settings.embedding_model = args.embedding_model
+    else:
+        settings.embedding_model = "all-MiniLM-L6-v2"
     if args.embedding_dim:
         settings.embedding_dim = args.embedding_dim
     if args.pg_dsn:

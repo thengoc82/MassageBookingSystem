@@ -1,1 +1,10 @@
 gunicorn==21.2.0
+python-dotenv
+Flask
+Flask-SQLAlchemy
+Flask-CORS
+Flask-JWT-Extended
+Flask-Migrate
+Flask-SocketIO
+redis
+python-socketio

@@ -1,73 +1,74 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { login } from '@/lib/api';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function LoginPage() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const { login } = useAuth();
   const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) { setError('Username and password required'); return; }
-
-    setLoading(true);
-    setError('');
-
+    setError("");
     try {
-      const res = await login({ username, password });
-      localStorage.setItem('access_token', res.data.access_token);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
-      router.push(res.data.user.role === 'admin' ? '/admin' : res.data.user.role === 'therapist' ? '/therapist' : '/dashboard');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
+      const user = await login(username, password);
+      if (user) {
+        switch (user.role) {
+          case "admin":
+            router.push("/admin");
+            break;
+          case "therapist":
+            router.push("/therapist");
+            break;
+          default:
+            router.push("/dashboard");
+            break;
+        }
+      }
+    } catch (err) {
+      setError("Invalid username or password");
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center bg-gray-50">
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 w-full max-w-md">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">Login</h1>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="p-8 bg-white rounded-lg shadow-md w-96">
+        <h2 className="mb-6 text-2xl font-bold text-center">Login</h2>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="block mb-2 text-sm font-medium text-gray-600">
+              Username
+            </label>
             <input
               type="text"
               value={username}
-              onChange={e => setUsername(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
-              placeholder="Enter username"
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg"
+              required
             />
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          <div className="mb-6">
+            <label className="block mb-2 text-sm font-medium text-gray-600">
+              Password
+            </label>
             <input
               type="password"
               value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
-              placeholder="Enter password"
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg"
+              required
             />
           </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>
-          )}
-
+          {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-[#031050] text-white py-2.5 rounded-lg font-medium hover:bg-[#1a2a6b] disabled:bg-gray-300 transition"
+            className="w-full py-2 text-white bg-blue-500 rounded-lg"
           >
-            {loading ? 'Logging in...' : 'Login'}
+            Login
           </button>
         </form>
       </div>
