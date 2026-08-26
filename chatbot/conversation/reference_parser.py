@@ -83,9 +83,12 @@ def resolve_by_name(text: str, items: list[Any], name_keys: tuple[str, ...] = ("
     return False, -1
 
 
-def parse_relative_date(text: str, base_date_str: str | None = None) -> str | None:
+def parse_relative_date(text: str, base_date_str: str | date | None = None) -> str | None:
     """Parse "tomorrow" or weekday names. Returns ISO date string or None."""
-    base_date = date.fromisoformat(base_date_str) if base_date_str else date.today()
+    if isinstance(base_date_str, date):
+        base_date = base_date_str
+    else:
+        base_date = date.fromisoformat(base_date_str) if base_date_str else date.today()
     text_lower = text.lower()
     if "tomorrow" in text_lower:
         return (base_date + timedelta(days=1)).isoformat()

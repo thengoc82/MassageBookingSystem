@@ -89,7 +89,7 @@ class TherapistService:
     @staticmethod
     def get_available_therapists(shop_id, date, start_time, duration=None, gender=None):
         date_obj = datetime.strptime(date, '%Y-%m-%d').date()
-        start = datetime.strptime(start_time, '%H:%M').time()
+        start = time.fromisoformat(start_time)
 
         if duration:
             start_dt = datetime.combine(date_obj, start)

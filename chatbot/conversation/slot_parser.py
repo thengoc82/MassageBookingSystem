@@ -1,7 +1,13 @@
-from typing import Any, List, Optional
+import logging
 import re
-from chatbot.conversation.state import ConversationState
-from chatbot.conversation.reference_parser import resolve_by_ordinal, resolve_by_index, parse_relative_date
+from typing import Any, List, Optional
+
+from chatbot.conversation.reference_parser import parse_relative_date, resolve_by_ordinal, resolve_by_index
+from chatbot.nlu.models import NLUResult
+from chatbot.models import ShopInfo
+from chatbot.conversation.parser_result import ParseResult, ParsedSlot
+
+logger = logging.getLogger(__name__)
 
 def _get_attr(obj: Any, attr: str, default: Any = None) -> Any:
     """Safely get an attribute from an object or a key from a dictionary."""
@@ -40,6 +46,12 @@ def parse_number_of_people(text: str) -> Optional[int]:
 
 def parse_shop(text: str, shops: List[Any]) -> Optional[Any]:
     text_lower = text.lower()
+    # Prioritize exact matches
+    for shop in shops:
+        shop_name = _get_attr(shop, 'shopName')
+        if shop_name and text_lower == shop_name.lower():
+            return shop
+    # Fallback to partial matches
     for shop in shops:
         shop_name = _get_attr(shop, 'shopName')
         if shop_name and text_lower in shop_name.lower():
@@ -48,6 +60,12 @@ def parse_shop(text: str, shops: List[Any]) -> Optional[Any]:
 
 def parse_course(text: str, courses: List[Any]) -> Optional[Any]:
     text_lower = text.lower()
+    # Prioritize exact matches
+    for course in courses:
+        course_name = _get_attr(course, 'courseName')
+        if course_name and course_name.lower() == text_lower:
+            return course
+    # Fallback to partial matches
     for course in courses:
         course_name = _get_attr(course, 'courseName')
         if course_name and course_name.lower() in text_lower:
@@ -61,132 +79,104 @@ def get_options_from_result(result):
         return result
     return None
 
-async def _handle_ordinal_selection(message: str, state: "ConversationState") -> bool:
+def _handle_ordinal_selection(message: str, recent_tool_results: Any) -> Optional[ParsedSlot]:
     last_options = []
     target_slot = None
+    source = "ordinal"
 
-    if state.recent_tool_results.last_shop_search and (options := get_options_from_result(state.recent_tool_results.last_shop_search)):
+    if recent_tool_results.last_shop_search and (options := get_options_from_result(recent_tool_results.last_shop_search)):
         last_options = options
-        target_slot = "shop_id"
-    elif state.recent_tool_results.last_course_search and (options := get_options_from_result(state.recent_tool_results.last_course_search)):
+        target_slot = "shop"
+    elif recent_tool_results.last_course_search and (options := get_options_from_result(recent_tool_results.last_course_search)):
         last_options = options
-        target_slot = "course_id"
-    elif state.recent_tool_results.last_slot_search and (options := get_options_from_result(state.recent_tool_results.last_slot_search)):
+        target_slot = "course"
+    elif recent_tool_results.last_slot_search and (options := get_options_from_result(recent_tool_results.last_slot_search)):
         last_options = options
         target_slot = "start_time"
 
     if not last_options or not target_slot:
-        return False
+        return None
 
     for resolver in (resolve_by_ordinal, resolve_by_index):
         matched, idx = resolver(message, last_options)
         if matched:
             selected_item = last_options[idx]
-            if target_slot == "shop_id":
-                state.booking_context.shop_id = _get_attr(selected_item, 'shopId')
-                state.booking_context.shop_name = _get_attr(selected_item, 'shopName')
-                return True
-            elif target_slot == "course_id":
-                state.booking_context.course_id = _get_attr(selected_item, 'courseId')
-                state.booking_context.course_name = _get_attr(selected_item, 'courseName')
-                if state.booking_context.duration is None:
-                    durations = _get_attr(selected_item, 'durations', [])
-                    if durations:
-                        state.booking_context.duration = _get_attr(durations[0], 'duration')
-                return True
+            if target_slot == "shop":
+                return ParsedSlot(name="shop", value=selected_item, source=source)
+            elif target_slot == "course":
+                return ParsedSlot(name="course", value=selected_item, source=source)
             elif target_slot == "start_time":
-                state.booking_context.start_time = _get_attr(selected_item, 'startTime')
-                return True
-    return False
+                return ParsedSlot(name="start_time", value=_get_attr(selected_item, 'startTime'), source=source)
+    return None
 
-async def parse_and_fill_slots(
+async def parse_message(
     message: str,
-    state: "ConversationState",
     nlu: "NLU",
-    conversation_manager: "ConversationManager",
+    recent_tool_results: Any,
     focused_slot: Optional[str] = None,
     nlu_result: Optional["NLUResult"] = None,
-) -> bool:
-    filled_any = False
+    base_date: Optional[str] = None
+) -> ParseResult:
+    result = ParseResult()
 
-    if await _handle_ordinal_selection(message, state):
-        return True
+    # 1. Ordinal/Index-based parsing (highest priority)
+    if ordinal_result := _handle_ordinal_selection(message, recent_tool_results):
+        result.add_slot(ordinal_result.name, ordinal_result.value, ordinal_result.source)
+        # If we found an ordinal match, we can often stop here as it's a very specific intent.
+        return result
 
-    local_nlu_result = nlu_result or (await nlu.understand(message) if message.strip() else None)
-
-    # First, try to fill the focused slot directly from the message if no entities are found for it
+    # 2. Focused, simple parsers
     if focused_slot:
-        entity_for_focused_slot_exists = False
-        if local_nlu_result and hasattr(local_nlu_result, 'entities'):
-            for e in local_nlu_result.entities:
-                try:
-                    # Attempt to access e.type.value, but fall back to e.type if it's just a string
-                    entity_type_str = e.type.value if hasattr(e.type, 'value') else e.type
-                    if entity_type_str == focused_slot:
-                        entity_for_focused_slot_exists = True
-                        break
-                except AttributeError:
-                    # This handles cases where e.type might not be what we expect
-                    continue
+        val = None
+        if focused_slot == "number_of_people":
+            val = parse_number_of_people(message)
+        elif focused_slot == "date":
+            val = parse_date(message, base_date_str=base_date)
+        elif focused_slot == "phone_number":
+            val = parse_phone_number(message)
         
-        if not entity_for_focused_slot_exists:
-            if focused_slot == "number_of_people":
-                if num_people := parse_number_of_people(message):
-                    state.booking_context.number_of_people = num_people
-                    filled_any = True
-            elif focused_slot == "date":
-                if date := parse_date(message):
-                    state.booking_context.date = date
-                    filled_any = True
-            elif focused_slot == "phone_number":
-                if phone := parse_phone_number(message):
-                    state.booking_context.phone_number = phone
-                    filled_any = True
+        if val is not None:
+            result.add_slot(focused_slot, val, "focused_regex")
 
-    if local_nlu_result and hasattr(local_nlu_result, 'entities'):
-        sorted_entities = sorted(local_nlu_result.entities, key=lambda e: e.is_correction, reverse=True)
-        
-        for entity in sorted_entities:
-            slot_name = entity.type.value if not isinstance(entity.type, str) else entity.type
-            value = entity.value
+    # 3. General NLU entity parsing
+    local_nlu_result = nlu_result or (await nlu.understand(message) if message.strip() else None)
+    if not (local_nlu_result and hasattr(local_nlu_result, 'entities')):
+        return result
 
-            # Skip filling if the slot is already filled and the entity is not a correction
-            if not entity.is_correction and getattr(state.booking_context, slot_name, None) is not None:
+    sorted_entities = sorted(local_nlu_result.entities, key=lambda e: e.is_correction, reverse=True)
+    
+    for entity in sorted_entities:
+        slot_name = entity.type.value if hasattr(entity.type, 'value') else entity.type
+        value = entity.value
+
+        parsed_value: Any = None
+        source = "nlu"
+
+        if slot_name == "number_of_people":
+            try:
+                parsed_value = int(value)
+            except (ValueError, TypeError):
                 continue
+        elif slot_name == "date":
+            parsed_value = parse_date(str(value), base_date_str=base_date if entity.is_correction else None)
+        elif slot_name == "phone_number":
+            parsed_value = parse_phone_number(str(value))
+        elif slot_name in ["shop_name", "shop_id"]:
+            if shops := get_options_from_result(recent_tool_results.last_shop_search):
+                if selected_shop := parse_shop(str(value), shops):
+                    parsed_value = selected_shop
+                    slot_name = "shop" # Normalize to 'shop'
+        elif slot_name == "area":
+            parsed_value = str(value)
+        elif slot_name in ["course_name", "course_id"]:
+            if courses := get_options_from_result(recent_tool_results.last_course_search):
+                if selected_course := parse_course(str(value), courses):
+                    parsed_value = selected_course
+                    slot_name = "course" # Normalize to 'course'
 
-            if slot_name == "number_of_people":
-                try:
-                    num_people = int(value)
-                    state.booking_context.number_of_people = num_people
-                    filled_any = True
-                except (ValueError, TypeError):
-                    pass
-            elif slot_name == "date":
-                base_date = state.booking_context.date if entity.is_correction and state.booking_context.date else None
-                parsed_date = parse_date(str(value), base_date_str=base_date)
-                if parsed_date:
-                    state.booking_context.date = parsed_date
-                    filled_any = True
-                print(f"date: {state.booking_context.date}")
-            elif slot_name == "phone_number":
-                if phone := parse_phone_number(str(value)):
-                    state.booking_context.phone_number = phone
-                    filled_any = True
-            elif slot_name in ["shop_name", "shop_id"]:
-                if shops := get_options_from_result(state.recent_tool_results.last_shop_search):
-                    if selected_shop := parse_shop(str(value), shops):
-                        state.booking_context.shop_id = _get_attr(selected_shop, 'shopId')
-                        state.booking_context.shop_name = _get_attr(selected_shop, 'shopName')
-                        filled_any = True
-            elif slot_name in ["course_name", "course_id"]:
-                 if courses := get_options_from_result(state.recent_tool_results.last_course_search):
-                    if selected_course := parse_course(str(value), courses):
-                        state.booking_context.course_id = _get_attr(selected_course, 'courseId')
-                        state.booking_context.course_name = _get_attr(selected_course, 'courseName')
-                        if not state.booking_context.duration:
-                            durations = _get_attr(selected_course, 'durations', [])
-                            if durations:
-                                state.booking_context.duration = _get_attr(durations[0], 'duration')
-                        filled_any = True
+        if parsed_value is not None:
+            result.add_slot(slot_name, parsed_value, source, confidence=0.9 if entity.is_correction else 0.7)
 
-    return filled_any
+    return result
+
+

@@ -13,16 +13,20 @@ class ConversationPhase(str, Enum):
     """Conversation phases for deterministic flow."""
 
     GREETING = "greeting"
-    COLLECTING_INFO = "collecting_info"
+    COLLECTING_PEOPLE = "collecting_people"
+    COLLECTING_DURATION = "collecting_duration"
+    SELECTING_DATE = "selecting_date"
     SEARCHING_SHOPS = "searching_shops"
+    SELECTING_PACKAGE = "selecting_package"
     SEARCHING_COURSES = "searching_courses"
     SEARCHING_SLOTS = "searching_slots"
     SELECTING_THERAPIST = "selecting_therapist"
     CHECKING_ELIGIBILITY = "checking_eligibility"
-    CONFIRMING_ACTION = "confirming_action"  # Generic for any write action
+    CONFIRMING_BOOKING = "confirming_booking"
     ACTION_COMPLETE = "action_complete"  # Generic for any write action
     BOOKING_COMPLETE = "booking_complete" # specific for booking
     LOOKING_UP_BOOKING = "looking_up_booking"
+    FAQ_PROMPT = "faq_prompt"
     FAQ_SEARCH = "faq_search"
     ERROR = "error"
 
@@ -34,16 +38,17 @@ class PendingAction(BaseModel):
     status: str = "pending"  # pending, executing, completed, cancelled, expired
 
 
+
 class BookingContext(BaseModel):
     """Context for booking flow."""
 
-    area: str | None = None
     shop_id: int | None = None
     shop_name: str | None = None
     course_id: int | None = None
     course_name: str | None = None
     therapist_name: str | None = None
     addon_ids: list[int] = Field(default_factory=list)
+    addon_names: list[str] = Field(default_factory=list)
     date: str | None = None
     start_time: str | None = None
     duration: int | None = None
@@ -52,6 +57,7 @@ class BookingContext(BaseModel):
     therapist_preference_type: str | None = None
     therapist_preference_value: str | None = None
     phone_number: str | None = None
+    user_name: str | None = None
     booking_code: str | None = None
 
 
@@ -87,10 +93,48 @@ class ConversationState(BaseModel):
     tool_failure_count: int = 0
     last_failed_tool: str | None = None
     pending_slot_to_fill: str | None = None
+    slot_fill_retries: int = 0
 
     nlu_result: NLUResult | None = None
 
+    def to_frontend_booking_state(self) -> dict[str, Any]:
+        """Converts the internal ConversationState to the frontend's BookingState format."""
+        state = {}
+        if self.booking_context.shop_id:
+            state["shopId"] = self.booking_context.shop_id
+        if self.booking_context.shop_name:
+            state["shopName"] = self.booking_context.shop_name
+        if self.booking_context.course_id:
+            state["courseId"] = self.booking_context.course_id
+        if self.booking_context.course_name:
+            state["courseName"] = self.booking_context.course_name
+        if self.booking_context.addon_ids:
+            state["addonIds"] = self.booking_context.addon_ids
+        if self.booking_context.addon_names:
+            state["addonNames"] = self.booking_context.addon_names
+        if self.booking_context.date:
+            state["date"] = self.booking_context.date
+        if self.booking_context.start_time:
+            state["time"] = self.booking_context.start_time
+        if self.booking_context.duration:
+            state["duration"] = self.booking_context.duration
+        if self.booking_context.number_of_people:
+            state["guests"] = self.booking_context.number_of_people
+        if self.booking_context.therapist_id:
+            state["therapistId"] = self.booking_context.therapist_id
+        if self.booking_context.therapist_name:
+            state["therapistName"] = self.booking_context.therapist_name
+        if self.booking_context.phone_number:
+            state["phone"] = self.booking_context.phone_number
+        if self.booking_context.booking_code:
+            state["bookingCode"] = self.booking_context.booking_code
 
+        # Add review/confirm flags based on current phase and pending_confirm
+        if self.phase == ConversationPhase.CONFIRMING_BOOKING:
+            state["review"] = True
+            state["confirm"] = True
+
+        return state
 
 
 
@@ -110,7 +154,25 @@ STATE_TRANSITIONS: list[StateTransition] = [
     StateTransition(
         from_phase=ConversationPhase.GREETING,
         action="create_booking",
-        to_phase=ConversationPhase.SEARCHING_COURSES,
+        to_phase=ConversationPhase.COLLECTING_PEOPLE,
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.COLLECTING_PEOPLE,
+        action="provide_people",
+        to_phase=ConversationPhase.COLLECTING_DURATION,
+        required_context=["number_of_people"],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.COLLECTING_DURATION,
+        action="provide_duration",
+        to_phase=ConversationPhase.SELECTING_PACKAGE,
+        required_context=["duration"],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.SELECTING_PACKAGE,
+        action="select_package",
+        to_phase=ConversationPhase.SEARCHING_SLOTS,
+        required_context=["course_id"], # A package selection implies a course_id
     ),
     StateTransition(
         from_phase=ConversationPhase.GREETING,
@@ -144,11 +206,11 @@ STATE_TRANSITIONS: list[StateTransition] = [
     StateTransition(
         from_phase=ConversationPhase.CHECKING_ELIGIBILITY,
         action="confirm_booking",
-        to_phase=ConversationPhase.CONFIRMING_ACTION,
+        to_phase=ConversationPhase.CONFIRMING_BOOKING,
         required_context=["therapist_preference_type"],
     ),
     StateTransition(
-        from_phase=ConversationPhase.CONFIRMING_ACTION,
+        from_phase=ConversationPhase.CONFIRMING_BOOKING,
         action="execute_write",
         to_phase=ConversationPhase.ACTION_COMPLETE,
     ),
@@ -249,7 +311,7 @@ class ConversationManager:
         state.pending_action = None
         state.pending_read_action = None
 
-    def apply_nlu_entities_to_booking_context(self, state: ConversationState, entities: list[Entity],) -> bool:
+    def apply_nlu_entities_to_booking_context(self, state: ConversationState, entities: list[Entity], package_selected: bool = False) -> bool:
         logger.critical(f"Applying NLU entities: {entities}")
         bc = state.booking_context
         updated_fields = False
@@ -267,8 +329,11 @@ class ConversationManager:
             if entity.type == EntityType.SHOP_ID:
                 entity_value = entity.value
                 if isinstance(entity_value, dict):
-                    bc.shop_id = int(_get_field_value(entity_value, "shopId")) if _get_field_value(entity_value, "shopId") is not None else bc.shop_id
-                    bc.shop_name = _get_field_value(entity_value, "shopName") or bc.shop_name
+                     logger.info(f"SHOP_ID entity received: {entity_value}")
+                     bc.shop_id = int(_get_field_value(entity_value, "shopId")) if _get_field_value(entity_value, "shopId") is not None else bc.shop_id
+                     bc.shop_name = _get_field_value(entity_value, "shopName") or bc.shop_name
+                     if bc.shop_id and bc.shop_name:
+                         logger.info(f"Resolved shop_id={bc.shop_id} to shop_name='{bc.shop_name}' from NLU entity.")
                 else:
                     try:
                         bc.shop_id = int(entity_value)
@@ -276,17 +341,26 @@ class ConversationManager:
                         logger.warning(f"Could not convert shop_id '{entity_value}' to int.")
                         bc.shop_id = None
                 
-                if bc.shop_name is None and state.recent_tool_results.last_shop_search:
+                if bc.shop_name:
+                    logger.info(f"Shop name '{bc.shop_name}' is already present.")
+                elif state.recent_tool_results.last_shop_search:
+                    logger.info(f"Attempting to find shop name for shop_id={bc.shop_id} in last_shop_search.")
                     shops = state.recent_tool_results.last_shop_search
                     if isinstance(shops, dict):
                         shops = shops.get("data", [])
                     
                     for shop_item in shops:
-                        shop_id_val = _get_field_value(shop_item, 'shopId')
+                        shop_id_val = _get_field_value(shop_item, 'id')
                         if shop_id_val is not None and int(shop_id_val) == bc.shop_id:
-                            bc.shop_name = _get_field_value(shop_item, 'shopName')
+                            bc.shop_name = _get_field_value(shop_item, 'name')
+                            logger.info(f"Resolved shop_id={bc.shop_id} to shop_name='{bc.shop_name}' from recent shop search.")
                             break
-            
+                
+                if not bc.shop_name:
+                     logger.warning(f"Could not resolve shop name for shop_id={bc.shop_id}. Name remains missing.")
+
+                if state.pending_slot_to_fill in ["shop_id"]:
+                    state.pending_slot_to_fill = None
             elif entity.type == EntityType.SHOP_NAME:
                 bc.shop_name = entity.value
                 if state.recent_tool_results.last_shop_search:
@@ -313,7 +387,7 @@ class ConversationManager:
 
                 if bc.duration is None and durations:
                     nlu_duration_entity = next((e for e in entities if e.type == EntityType.DURATION), None)
-                    if nlu_duration_entity:
+                    if nlu_duration_entity and not package_selected:
                         bc.duration = nlu_duration_entity.value
                     else:
                         first_duration = durations[0]
@@ -322,8 +396,34 @@ class ConversationManager:
 
 
             elif entity.type == EntityType.COURSE_ID:
-                bc.course_id = int(entity.value) if isinstance(entity.value, str) else entity.value
-                logger.info(f"Setting course ID from COURSE_ID entity: ID={bc.course_id}")
+                # This is a simplified check. A more robust implementation might be needed.
+                if isinstance(entity.value, dict) and "courseType" in entity.value:
+                    if entity.value["courseType"] == "main":
+                        bc.course_id = int(entity.value["courseId"])
+                    else:
+                        if bc.addon_ids is None:
+                            bc.addon_ids = []
+                        bc.addon_ids.append(int(entity.value["courseId"]))
+                elif isinstance(entity.value, (int, str)):
+                    # Fallback for when courseType is not specified
+                    if bc.course_id is None:
+                        bc.course_id = int(entity.value)
+                    else:
+                        if bc.addon_ids is None:
+                            bc.addon_ids = []
+                        bc.addon_ids.append(int(entity.value))
+                
+                if bc.course_name is None and state.recent_tool_results.last_course_search and state.recent_tool_results.last_course_search.get("data"):
+                    logger.info(f"Found last_course_search results: {state.recent_tool_results.last_course_search}")
+                    courses = state.recent_tool_results.last_course_search["data"]
+                    for course_item in courses:
+                        course_id_val = _get_field_value(course_item, "id")
+                        if course_id_val is not None and int(course_id_val) == bc.course_id:
+                            bc.course_name = _get_field_value(course_item, "name")
+                            logger.info(f"Found and set course_name: {bc.course_name}")
+                            break
+                else:
+                    logger.warning("last_course_search results not found.")
             
             elif entity.type == EntityType.COURSE_NAME:
                 bc.course_name = entity.value
@@ -341,32 +441,110 @@ class ConversationManager:
                             if bc.duration is None and course_durations:
                                 bc.duration = _get_field_value(course_durations[0], "duration")
                             break
-            elif entity.type == EntityType.THERAPIST:
+            elif entity.type == EntityType.THERAPIST_ID:
                 therapist_value = entity.value
-                bc.therapist_id = _get_field_value(therapist_value, "therapistId", bc.therapist_id)
-                bc.therapist_name = _get_field_value(therapist_value, "name", bc.therapist_name)
+                if isinstance(therapist_value, dict):
+                    bc.therapist_id = _get_field_value(
+                        therapist_value, "therapistId", bc.therapist_id
+                    )
+                    bc.therapist_name = _get_field_value(
+                        therapist_value, "name", bc.therapist_name
+                    )
+                else:
+                    try:
+                        bc.therapist_id = int(therapist_value)
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            f"Could not convert therapist_id '{therapist_value}' to int."
+                        )
+                        bc.therapist_id = None
+
+                if (
+                    bc.therapist_name is None
+                    and state.recent_tool_results.last_therapist_search
+                ):
+                    therapists = state.recent_tool_results.last_therapist_search.get(
+                        "data", []
+                    )
+                    for t in therapists:
+                        therapist_id_val = _get_field_value(t, "therapistId")
+                        if (
+                            therapist_id_val is not None
+                            and int(therapist_id_val) == bc.therapist_id
+                        ):
+                            bc.therapist_name = _get_field_value(t, "name")
+                            break
+                if state.phase == ConversationPhase.SELECTING_THERAPIST:
+                    state.phase = ConversationPhase.CONFIRMING_BOOKING
+                    state.pending_slot_to_fill = "phone_number"
+                if state.pending_slot_to_fill == "therapist_id":
+                    state.pending_slot_to_fill = None
+                    
+            elif entity.type == EntityType.THERAPIST_NAME:
+                bc.therapist_name = entity.value
+                if state.recent_tool_results.last_therapist_search:
+                    therapists = state.recent_tool_results.last_therapist_search.get(
+                        "data", []
+                    )
+                    for t in therapists:
+                        therapist_id_val = _get_field_value(t, "therapistId")
+                        therapist_name_val = _get_field_value(t, "name")
+
+                        if (
+                            therapist_name_val
+                            and entity.value.lower() in therapist_name_val.lower()
+                        ):
+                            if therapist_id_val is not None:
+                                bc.therapist_id = int(therapist_id_val)
+                            bc.therapist_name = therapist_name_val
+                            break
+                if state.phase == ConversationPhase.SELECTING_THERAPIST:
+                    state.phase = ConversationPhase.CONFIRMING_BOOKING
+                    state.pending_slot_to_fill = "phone_number"
+                if state.pending_slot_to_fill == "therapist_name":
+                    state.pending_slot_to_fill = None
 
             elif entity.type == EntityType.DATE:
                 bc.date = entity.value
+                if state.pending_slot_to_fill == "date":
+                    state.pending_slot_to_fill = None
 
             elif entity.type == EntityType.DURATION:
-                bc.duration = entity.value
+                if not package_selected:
+                    bc.duration = entity.value
+                    if state.pending_slot_to_fill == "duration":
+                        state.pending_slot_to_fill = None
+                else:
+                    logger.info("Ignoring NLU duration because a package was selected.")
 
             elif entity.type == EntityType.NUMBER_OF_PEOPLE:
                 bc.number_of_people = entity.value
+                if state.pending_slot_to_fill == "number_of_people":
+                    state.pending_slot_to_fill = None
 
             elif entity.type == EntityType.TIME:
                 bc.start_time = entity.value
+                if state.pending_slot_to_fill == "start_time":
+                    state.pending_slot_to_fill = None
 
             elif entity.type == EntityType.PHONE_NUMBER:
+                logger.critical(
+                    f"BUGTRACE: Assigning phone_number. "
+                    f"entity.type={entity.type}, "
+                    f"entity.value='{entity.value}', "
+                    f"entity.raw_text='{entity.raw_text}', "
+                    f"current.phone_number='{bc.phone_number}', "
+                    f"current.date='{bc.date}'"
+                )
                 bc.phone_number = entity.value
+                if state.pending_slot_to_fill == "phone_number":
+                    state.pending_slot_to_fill = None
 
             elif entity.type == EntityType.BOOKING_CODE:
                 bc.booking_code = entity.value
-
-            elif entity.type == EntityType.AREA:
-                bc.area = entity.value
-                updated_fields = True
+                if state.pending_slot_to_fill == "booking_code":
+                    state.pending_slot_to_fill = None
+                    updated_fields = True
                 logger.debug(f"Booking context updated by entity {entity.type}. New context: {bc}")
         
         logger.info(f"Booking context after applying entities: {bc}")
@@ -398,5 +576,6 @@ class ConversationManager:
                     setattr(state.booking_context, key, value)
                     updated = True
         return updated
+
 
 

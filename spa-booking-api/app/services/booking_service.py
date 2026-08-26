@@ -1,7 +1,7 @@
 import json
 import random
 import string
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 
 from app.extensions import db
 from app.models.booking import Booking, BookingAddon, BookingTherapist
@@ -32,7 +32,7 @@ class BookingService:
             raise ValidationError('shopId, bookingDate, startTime, and duration are required')
 
         booking_date = datetime.strptime(booking_date_str, '%Y-%m-%d').date()
-        start_time = datetime.strptime(start_time_str, '%H:%M').time()
+        start_time = time.fromisoformat(start_time_str)
 
         start_datetime = datetime.combine(booking_date, start_time)
         end_datetime = start_datetime + timedelta(minutes=duration)
@@ -160,7 +160,7 @@ class BookingService:
                 )
                 db.session.add(booking_addon)
 
-            core_keys = {'phoneNumber', 'shopId', 'bookingDate', 'startTime', 'duration', 'numberOfPeople', 'courseId', 'services', 'addOns', 'therapistPreferenceType', 'therapistPreferenceValue'}
+            core_keys = {'phoneNumber', 'shopId', 'bookingDate', 'startTime', 'duration', 'numberOfPeople', 'courseId', 'services', 'addon_ids', 'therapistPreferenceType', 'therapistPreferenceValue'}
             preferences = {k: v for k, v in data.items() if k not in core_keys and v is not None}
             if preferences:
                 booking.preferences_json = json.dumps(preferences, ensure_ascii=False)
@@ -182,8 +182,9 @@ class BookingService:
 
     @staticmethod
     def _lock_least_loaded_therapist(shop_id, date, start_time, end_time):
-        therapist = db.session.query(
-            Therapist,
+        
+        therapist_workload = db.session.query(
+            Therapist.id.label('therapist_id'),
             db.func.coalesce(db.func.sum(
                 db.func.extract('epoch', Booking.end_time) - db.func.extract('epoch', Booking.start_time)
             ), 0).label('workload')
@@ -200,20 +201,41 @@ class BookingService:
         ).group_by(Therapist.id).order_by(
             db.text('workload ASC'),
             Therapist.id.asc()
-        ).with_for_update(skip_locked=True).first()
+        ).subquery()
 
-        if not therapist:
-            return None
+        
+        therapist_to_lock_query = db.session.query(
+            Therapist
+        ).join(
+            therapist_workload, therapist_workload.c.therapist_id == Therapist.id
+        ).order_by(
+            therapist_workload.c.workload.asc(),
+            Therapist.id.asc()
+        )
 
-        if not BookingService._is_therapist_free(therapist.Therapist.id, date, start_time, end_time):
-            return None
+        
+        with db.session.begin_nested():
+            therapist_to_lock = therapist_to_lock_query.first()
+            if not therapist_to_lock:
+                return None
 
-        return therapist.Therapist
+            
+            therapist = db.session.query(Therapist).filter(
+                Therapist.id == therapist_to_lock.id
+            ).with_for_update(skip_locked=True).first()
+
+            
+            if not therapist or not BookingService._is_therapist_free(therapist.id, date, start_time, end_time):
+                
+                return None  
+
+            return therapist
 
     @staticmethod
     def _lock_available_therapist_by_gender(shop_id, date, start_time, end_time, gender):
-        therapist = db.session.query(
-            Therapist,
+        
+        therapist_workload = db.session.query(
+            Therapist.id.label('therapist_id'),
             db.func.coalesce(db.func.sum(
                 db.func.extract('epoch', Booking.end_time) - db.func.extract('epoch', Booking.start_time)
             ), 0).label('workload')
@@ -231,15 +253,35 @@ class BookingService:
         ).group_by(Therapist.id).order_by(
             db.text('workload ASC'),
             Therapist.id.asc()
-        ).with_for_update(skip_locked=True).first()
+        ).subquery()
 
-        if not therapist:
-            return None
+        
+        therapist_to_lock_query = db.session.query(
+            Therapist
+        ).join(
+            therapist_workload, therapist_workload.c.therapist_id == Therapist.id
+        ).order_by(
+            therapist_workload.c.workload.asc(),
+            Therapist.id.asc()
+        )
 
-        if not BookingService._is_therapist_free(therapist.Therapist.id, date, start_time, end_time):
-            return None
+        
+        with db.session.begin_nested():
+            therapist_to_lock = therapist_to_lock_query.first()
+            if not therapist_to_lock:
+                return None
 
-        return therapist.Therapist
+            
+            therapist = db.session.query(Therapist).filter(
+                Therapist.id == therapist_to_lock.id
+            ).with_for_update(skip_locked=True).first()
+
+            
+            if not therapist or not BookingService._is_therapist_free(therapist.id, date, start_time, end_time):
+                
+                return None
+
+            return therapist
 
     @staticmethod
     def _get_available_therapists_for_slot(shop_id, date, start_time, end_time):
@@ -360,6 +402,11 @@ class BookingService:
         if not booking:
             raise ResourceNotFound('Booking')
 
+        main_course = booking.services[0] if booking.services else None
+        add_ons = booking.addons
+
+
+
         return BookingService._booking_to_dict(booking, detailed=True)
 
     @staticmethod
@@ -372,7 +419,7 @@ class BookingService:
             raise BusinessRuleViolation('INVALID_MODIFY_STATUS', 'Only Booked bookings can be modified')
 
         if 'startTime' in data:
-            booking.start_time = datetime.strptime(data['startTime'], '%H:%M').time()
+            booking.start_time = time.fromisoformat(data['startTime'])
 
         if 'therapistId' in data:
             booking.therapist_id = data['therapistId']

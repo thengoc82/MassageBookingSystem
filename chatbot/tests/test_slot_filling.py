@@ -115,7 +115,7 @@ async def test_invalid_date(slot_manager: SlotFillingManager, initial_state: Con
 
     nlu_mock.understand.return_value = NLUResult(intent=Intent.PROVIDE_INFORMATION, entities=[]) 
     complete, message, _ = await slot_manager.continue_filling(initial_state, "invalid-date-string")
-    assert "didn't understand that for date" in message.lower()
+    assert "seems invalid" in message.lower()
     assert initial_state.booking_context.date is None
 
 
@@ -130,7 +130,7 @@ async def test_invalid_guest_count(slot_manager: SlotFillingManager, initial_sta
 
     nlu_mock.understand.return_value = NLUResult(intent=Intent.PROVIDE_INFORMATION, entities=[Entity(type=EntityType.NUMBER_OF_PEOPLE, value="many")])
     complete, message, _ = await slot_manager.continue_filling(initial_state, "many people")
-    assert "didn't understand that for number of people" in message.lower()
+    assert "seems invalid" in message.lower()
     assert initial_state.booking_context.number_of_people is None
 
 
@@ -151,7 +151,7 @@ async def test_invalid_phone(slot_manager: SlotFillingManager, initial_state: Co
     await slot_manager.start(initial_state, "check_eligibility")
     nlu_mock.understand.return_value = NLUResult(intent=Intent.UNKNOWN, entities=[])
     complete, message, _ = await slot_manager.continue_filling(initial_state, "abc")
-    assert "didn't understand that for phone number" in message.lower()
+    assert "seems invalid" in message.lower()
     assert initial_state.booking_context.phone_number is None
 
 
@@ -315,17 +315,61 @@ async def test_correction_does_not_overwrite_with_stale_extraction(slot_manager:
 
 
 @pytest.mark.asyncio
-async def test_word_to_number_selection(slot_manager: SlotFillingManager, initial_state: ConversationState, nlu_mock):
-    shops = [
-        ShopInfo(shopId=10, shopName="Downtown", address="a", phoneNumber="1", status="Open",
-                 openTime="09:00", closeTime="22:00"),
-        ShopInfo(shopId=20, shopName="Uptown", address="b", phoneNumber="2", status="Open",
-                 openTime="09:00", closeTime="22:00"),
-        ShopInfo(shopId=30, shopName="Midtown", address="c", phoneNumber="3", status="Open",
-                    openTime="09:00", closeTime="22:00"),
-    ]
-    initial_state.recent_tool_results.last_shop_search = {"data": shops}
-    initial_state.pending_read_action = "search_shops"
-    nlu_mock.understand.return_value = NLUResult(intent=Intent.PROVIDE_INFORMATION, entities=[Entity(type="number", value=3)])
-    response = await slot_manager.continue_filling(initial_state, "three")
-    assert initial_state.booking_context.shop_id == 30
+async def test_shop_name_entity_sets_id_and_name(slot_manager: SlotFillingManager, initial_state: ConversationState, nlu_mock):
+    """Test that providing a shop name via NLU entity correctly sets both shop_id and shop_name."""
+    action = "search_slots"
+
+    # 1. Start -> asks for shop_id
+    await slot_manager.start(initial_state, action)
+    assert initial_state.pending_slot_to_fill == "shop_id"
+
+    # 2. Mock NLU to return a SHOP_ID entity with a dict value, as the extractor now does
+    nlu_result = NLUResult(
+        intent=Intent.PROVIDE_INFORMATION, 
+        entities=[
+            Entity(
+                type=EntityType.SHOP_ID, 
+                value={"shopId": 1, "shopName": "Shinjuku"},
+                raw_text="shinjuku"
+            )
+        ]
+    )
+    nlu_mock.understand.return_value = nlu_result
+    
+    # 3. Provide the shop name
+    await slot_manager.continue_filling(initial_state, "shinjuku", nlu_result=nlu_result)
+    
+    # 4. Assert that both shop_id and shop_name are set correctly
+    assert initial_state.booking_context.shop_id == 1
+    assert initial_state.booking_context.shop_name == "Shinjuku"
+    # It should then ask for the next slot
+    assert "which massage course" in (await slot_manager.continue_filling(initial_state, ""))[1].lower()
+
+
+@pytest.mark.asyncio
+async def test_area_slot_filling(slot_manager: SlotFillingManager, initial_state: ConversationState, nlu_mock):
+    """Test that providing an area correctly fills the slot and completes the action."""
+    action = "search_shops"
+
+    # 1. Start the process, it should ask for an area
+    needed, message, _ = await slot_manager.start(initial_state, action)
+    assert needed is True
+    assert "which area" in message.lower()
+    assert initial_state.pending_slot_to_fill == "area"
+
+    # 2. Provide the area
+    user_message = "in shinjuku"
+    nlu_mock.understand.return_value = NLUResult(
+        intent=Intent.PROVIDE_INFORMATION,
+        entities=[Entity(type=EntityType.AREA, value="shinjuku")]
+    )
+    complete, message, _ = await slot_manager.continue_filling(
+        initial_state, user_message, nlu_result=nlu_mock.understand.return_value
+    )
+    
+    # 3. Assert that the slot is filled and the process is complete
+    assert initial_state.booking_context.area == "shinjuku"
+    assert complete is True
+    assert "all the information" in message
+    assert initial_state.pending_read_action is None
+

@@ -1,6 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
 
+
+
+import pytest
+
 def test_create_booking_directly_returns_201(client, sample_shop, sample_courses, sample_therapists):
     """POST /api/bookings with direct data should return 201 with booking code."""
     course = sample_courses[0]
@@ -89,6 +93,20 @@ def test_available_therapists_returns_200(client, sample_shop, sample_therapists
     assert len(therapists) == 3
     names = [t['name'] for t in therapists]
     assert 'Therapist A' in names
+
+
+
+@pytest.mark.parametrize("time_format", ["10:00", "10:00:00"])
+def test_available_therapists_accepts_iso_time_formats(client, sample_shop, sample_therapists, time_format):
+    """GET /api/shops/{id}/available-therapists supports HH:MM and HH:MM:SS."""
+    resp = client.get(
+        f"/api/shops/{sample_shop.id}/available-therapists",
+        query_string={"date": "2026-07-20", "startTime": time_format, "duration": 60},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert len(data["data"]) == 3
 
 
 def test_get_available_slots_returns_capacity(client, sample_shop, sample_therapists):

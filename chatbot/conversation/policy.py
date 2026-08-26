@@ -1,14 +1,32 @@
 # chatbot/conversation/policy.py
-"""Dialogue Policy layer.
-
-Decides what should happen next based on conversation state, detected intent,
-goal, slot filling status, and tool results. Returns a structured
-`PolicyDecision` instead of natural language.
-
-Does NOT do slot extraction (that's the NLU's job) or NLG (NLG service's job).
-"""
 from __future__ import annotations
+from chatbot.nlu.models import Intent
 
+class DialoguePolicyManager:
+    # ... (rest of the class)
+
+    def decide(
+        self,
+        state: ConversationState,
+        intent: str,
+        message: str = "",
+        nlu_result: Any | None = None,
+    ) -> PolicyDecision:
+        # Handle therapist skip directly
+        if (
+            state.phase == ConversationPhase.SELECTING_THERAPIST
+            and intent == Intent.DENIAL
+        ):
+            state.booking_context.therapist_id = None
+            state.booking_context.therapist_name = None
+            state.phase = ConversationPhase.CONFIRMING_BOOKING
+            state.pending_slot_to_fill = "phone_number"
+            logger.info("User skipped therapist selection. Resuming booking.")
+            return PolicyDecision(action=Action.RESUME_BOOKING, goal=state.current_goal)
+
+        # ... (rest of the decide method)
+
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -16,6 +34,9 @@ from typing import Any
 
 from chatbot.conversation.goals import Goal
 from chatbot.conversation.state import BookingContext, ConversationState, ConversationPhase
+
+logger = logging.getLogger(__name__)
+
 
 
 class Action(str, Enum):
@@ -48,12 +69,21 @@ class PolicyDecision:
 
 # (policy tool name, registry tool name, required slots for the tool).
 _BOOKING_TOOL_CHAIN: list[tuple[str, str, tuple[str, ...]]] = [
-    ("search_shops", "searchShops", ("area",)),
-    ("search_courses", "searchCourses", ("shop_id",)),
-    ("search_slots", "searchAvailableSlots",
-     ("shop_id", "course_id", "duration", "date", "number_of_people")),
-    ("get_therapists", "getTherapists", ("shop_id", "course_id", "date", "start_time", "duration")),
 ]
+
+_REQUIRED_FINAL_SLOTS = ("phone_number",)
+
+
+_FINAL_BOOKING_SLOTS = (
+    "shop_id",
+    "date",
+    "number_of_people",
+    "duration",
+    "course_id",
+    "start_time",
+    "phone_number",
+)
+
 
 _YES_TOKENS = frozenset({
     "yes", "yep", "yup", "yeah",
@@ -89,6 +119,10 @@ def _message_contains_token(text: str, tokens: frozenset[str]) -> str | None:
 def _first_missing(context: BookingContext, required: tuple[str, ...]) -> str | None:
     for slot in required:
         if getattr(context, slot, None) is None:
+            # Special check for therapist_id, which is not strictly required
+            if slot == "therapist_id":
+                if getattr(context, "therapist_preference_type", None) == "any":
+                    continue # Skip if user doesn't want a specific therapist
             return slot
     return None
 
@@ -113,18 +147,51 @@ class DialoguePolicyManager:
     def get_phase_for_slot(self, slot_name: str | None) -> ConversationPhase:
         """Return the conversation phase that corresponds to asking for a slot."""
         if not slot_name:
-            return ConversationPhase.COLLECTING_INFO
+            return ConversationPhase.GREETING
+        if slot_name == "number_of_people":
+            return ConversationPhase.COLLECTING_PEOPLE
+        if slot_name == "duration":
+            return ConversationPhase.COLLECTING_DURATION
         if "shop" in slot_name:
             return ConversationPhase.SEARCHING_SHOPS
         if "course" in slot_name:
-            return ConversationPhase.SEARCHING_COURSES
+            return ConversationPhase.SELECTING_PACKAGE
         if "therapist" in slot_name:
             return ConversationPhase.SELECTING_THERAPIST
-        if any(s in slot_name for s in ["date", "time", "duration", "guests", "number_of_people"]):
+        if "date" in slot_name:
+            return ConversationPhase.SELECTING_DATE
+        if "time" in slot_name:
             return ConversationPhase.SEARCHING_SLOTS
         if "phone" in slot_name or "eligibility" in slot_name:
             return ConversationPhase.CHECKING_ELIGIBILITY
         return ConversationPhase.COLLECTING_INFO
+
+    def _handle_slot_shortcut(self, state: ConversationState, message: str) -> PolicyDecision | None:
+        """Handle slot-filling shortcuts before main policy logic."""
+        # Shortcut for number_of_people
+        if (state.phase == ConversationPhase.COLLECTING_PEOPLE or state.pending_slot_to_fill == "number_of_people"):
+            logger.info(f"[Shortcut Check] Current phase: {state.phase}, pending_slot_to_fill: {state.pending_slot_to_fill}, Raw message: '{message}'")
+            try:
+                num = int(message.strip())
+                logger.info(f"[Shortcut Check] Parsed number: {num}")
+                if 1 <= num <= 3:
+                    state.booking_context.number_of_people = num
+                    state.pending_slot_to_fill = None  # Clear pending slot
+                    logger.info(f"[Shortcut Check] Validation: passed, booking_context.number_of_people = {state.booking_context.number_of_people}")
+                    # After filling the slot, re-evaluate the next step
+                    return self._next_booking_step(state)
+                else:
+                    logger.warning(f"[Shortcut Check] Validation: failed, number out of range (1-3).")
+                    return PolicyDecision(
+                        action=Action.ASK_SLOT,
+                        slot="number_of_people",
+                        goal=Goal.BOOK_APPOINTMENT,
+                        message="Please enter the number of people (1 to 3)."
+                    )
+            except ValueError:
+                logger.info(f"[Shortcut Check] Shortcut matched: no (message is not an integer).")
+                return None
+        return None
 
     def decide(
         self,
@@ -134,8 +201,12 @@ class DialoguePolicyManager:
         nlu_result: Any | None = None,
     ) -> PolicyDecision:
         # 0. Pre-extract booking_code / phone_number if relevant, as NLU might miss it.
-        if intent in {"lookup_booking", "cancel_booking", "modify_booking"}:
-            self._extract_lookup_hints(state, message)
+        self._extract_lookup_hints(state, message)
+
+        # NEW: Handle slot-filling shortcuts first
+        shortcut_decision = self._handle_slot_shortcut(state, message)
+        if shortcut_decision:
+            return shortcut_decision
 
         # 1. Recovery from repeated tool failures.
         if state.tool_failure_count >= self.MAX_RETRIES and state.last_failed_tool:
@@ -150,6 +221,28 @@ class DialoguePolicyManager:
         # 2. Confirmation gate.
         if state.pending_confirm:
             return self._decide_confirmation(state, intent, message)
+
+        # Handle therapist skip directly
+        if (
+            state.phase == ConversationPhase.SELECTING_THERAPIST
+            and intent == Intent.DENIAL
+        ):
+            state.booking_context.therapist_id = None
+            state.booking_context.therapist_name = None
+            # state.phase = ConversationPhase.CONFIRMING_BOOKING
+            state.pending_slot_to_fill = "phone_number"
+            logger.info("User skipped therapist selection. Resuming booking.")
+            return self._next_booking_step(state)
+        
+        if intent == "greeting":
+            return PolicyDecision(
+                action=Action.NO_ACTION,
+                message="Hi! How can I help you?",
+            )
+        
+        if intent == "confirmation":
+            return self._decide_confirmation(state, intent, message)
+
 
         # 3. Handle explicit reset/cancel.
         if intent == "reset":
@@ -166,12 +259,16 @@ class DialoguePolicyManager:
              state.previous_goal = None
              return PolicyDecision(action=Action.RESUME_BOOKING, goal=state.current_goal)
 
+        if state.phase == ConversationPhase.FAQ_PROMPT:
+            logger.debug("Phase is FAQ_PROMPT, moving to answer the question.")
+            return PolicyDecision(action=Action.ANSWER_FAQ, goal=Goal.ASK_FAQ)
+
         # 5. Route based on primary goal/intent.
         if intent in {"cancel_booking", "modify_booking"}:
             return self._decide_write_intent(state, intent)
         if intent == "lookup_booking":
             return self._decide_lookup(state)
-        if intent == "faq_search":
+        if intent == "faq":
             return self._decide_faq(state)
         if intent in {"browse_shops", "browse_courses", "browse_therapists"}:
             return self._decide_browse(state, intent)
@@ -210,7 +307,7 @@ class DialoguePolicyManager:
         if not bc.booking_code and not bc.phone_number:
             return PolicyDecision(
                 action=Action.ASK_SLOT,
-                slot="booking_code",
+                slot="phone_number",
                 goal=Goal.LOOKUP_BOOKING,
             )
         return PolicyDecision(
@@ -231,32 +328,40 @@ class DialoguePolicyManager:
                 bc.booking_code = code_match.group(0)
         if not bc.phone_number:
             # A simple regex for phone-like numbers.
-            phone_match = re.search(r"\+?\d[\d\s-]{7,}", message)
+            phone_match = re.search(r"\b(0\d{9,10}|\+?\d{1,3}[\s-]?\d{7,9})\b", message)
             if phone_match:
                 # Normalize by removing non-digit characters.
                 bc.phone_number = "".join(filter(str.isdigit, phone_match.group(0)))
 
     @staticmethod
     def _booking_args(bc: BookingContext) -> dict[str, Any]:
-        args: dict[str, Any] = {}
-        if bc.booking_code:
-            args["bookingCode"] = bc.booking_code
-        if bc.phone_number:
-            args["phoneNumber"] = bc.phone_number
+        args = {k: v for k, v in bc.model_dump().items() if v is not None}
+        
+        # Convert addon_ids to the expected structure for the booking payload
+        if 'addon_ids' in args and args['addon_ids']:
+             unique_addon_ids = sorted(list(set(args['addon_ids'])))
+             args['addOns'] = [
+                 {"courseId": a_id, "personIndex": 1} for a_id in unique_addon_ids
+             ]
+        
+        # Remove addon_ids as it's not part of the final payload
+        args.pop('addon_ids', None)
+        
         return args
 
     def _decide_faq(self, state: ConversationState) -> PolicyDecision:
         # If we are in the middle of another goal, save it so we can resume later.
         if state.current_goal and state.current_goal != Goal.ASK_FAQ:
-            interrupted_goal = state.current_goal
-            state.previous_goal = interrupted_goal
-        else:
-            interrupted_goal = None
-
+            state.previous_goal = state.current_goal
+        
         state.current_goal = Goal.ASK_FAQ
+        state.phase = ConversationPhase.FAQ_PROMPT
+        
+        # This is the initial entry to the FAQ flow. Just ask for the user's question.
         return PolicyDecision(
-            action=Action.ANSWER_FAQ,
-            goal=interrupted_goal,  # The goal is what we *were* doing.
+            action=Action.REQUEST_CLARIFICATION,
+            goal=state.previous_goal,
+            message="What would you like to know?"
         )
 
     def _decide_browse(self, state: ConversationState, intent: str) -> PolicyDecision:
@@ -284,96 +389,241 @@ class DialoguePolicyManager:
     def _decide_booking(
         self, state: ConversationState, intent: str, message: str
     ) -> PolicyDecision:
-        # If we are in the middle of a slot-filling sequence, continue it.
-        if state.pending_read_action:
-            return PolicyDecision(
-                action=Action.RUN_TOOL,
-                tool="__continue_slot_filling__",
-                goal=state.current_goal,
-            )
-
-        # If starting a booking flow, set the goal.
-        if intent in {"create_booking", "book"} and state.current_goal != Goal.BOOK_APPOINTMENT:
-            state.current_goal = Goal.BOOK_APPOINTMENT
-            state.phase = ConversationPhase.COLLECTING_INFO
-
-        # If we are already in the booking goal, proceed with the next step.
-        if state.current_goal == Goal.BOOK_APPOINTMENT:
-            return self._next_booking_step(state)
-
-        # Fallback for ambiguous inputs: default to starting a booking.
+        logger.debug(
+            f"Deciding booking: phase={state.phase}, pending_slot={state.pending_slot_to_fill}, intent={intent}"
+        )
         if state.current_goal != Goal.BOOK_APPOINTMENT:
             state.current_goal = Goal.BOOK_APPOINTMENT
-            state.phase = ConversationPhase.COLLECTING_INFO
+            # If shop is missing, start there. Otherwise, assume we're collecting info.
+            if not state.booking_context.shop_id:
+                state.phase = ConversationPhase.SEARCHING_SHOPS
+            else:
+                state.phase = ConversationPhase.SEARCHING_SLOTS
+            logger.debug("Goal not BOOK_APPOINTMENT, setting goal and phase.")
+
+        # If a slot was pending and is now filled, clear it.
+        if state.pending_slot_to_fill and getattr(
+            state.booking_context, state.pending_slot_to_fill, None
+        ) is not None:
+            logger.debug(
+                f"Pending slot '{state.pending_slot_to_fill}' was filled. Clearing."
+            )
+            state.pending_slot_to_fill = None
+
+        # If a slot is explicitly pending, ask for it.
+        if state.pending_slot_to_fill:
+            logger.debug(f"Asking for pending slot: {state.pending_slot_to_fill}")
+            return PolicyDecision(
+                action=Action.ASK_SLOT,
+                slot=state.pending_slot_to_fill,
+                goal=Goal.BOOK_APPOINTMENT,
+            )
+
+        # Determine the next step in the booking flow.
         return self._next_booking_step(state)
 
     def _next_booking_step(self, state: ConversationState) -> PolicyDecision:
-        # Iterate through the booking tool chain to find the next logical action.
-        for policy_tool, registry_tool, required_slots in _BOOKING_TOOL_CHAIN:
-            # If we're at the 'search_shops' step but we already have a shop_id,
-            # it means the user provided it directly, so we can skip asking for an area.
-            if policy_tool == "search_shops" and state.booking_context.shop_id is not None:
-                continue
-                
-            # Check if all slots required to run this tool are already filled.
-            first_missing_slot = _first_missing(state.booking_context, required_slots)
+        bc = state.booking_context
+        
+        # Define the exact sequence of the conversation
+        sequence = [
+            "shop_id",
+            "date",
+            "number_of_people",
+            "duration",
+            "course_id", # This now covers main course and add-ons conceptually
+            "start_time",
+            "therapist_id", # Optional step
+            "phone_number",
+        ]
 
-            if first_missing_slot is None:
-                # We have all necessary info to run this tool.
-                # If the tool hasn't been run yet, run it.
-                if not _tool_already_run(state, registry_tool):
+        # Find the first missing piece of information in the sequence
+        next_missing_slot = None
+        for slot in sequence:
+            # Therapist selection is optional and conditional
+            if slot == "therapist_id":
+                if bc.number_of_people == 1 and bc.therapist_id is None and getattr(bc, "therapist_preference_type", None) != "any":
+                    # Only ask if not already skipped
+                    if state.phase != ConversationPhase.SELECTING_THERAPIST or Intent != Intent.DENIAL:
+                         next_missing_slot = "therapist_id"
+                         break
+                continue
+
+            if getattr(bc, slot, None) is None:
+                next_missing_slot = slot
+                break
+        
+        logger.debug(f"Next missing slot in sequence: {next_missing_slot}")
+
+        # If a slot is explicitly pending from a previous turn, prioritize it
+        if state.pending_slot_to_fill:
+            logger.debug(f"Prioritizing explicitly pending slot: {state.pending_slot_to_fill}")
+            next_missing_slot = state.pending_slot_to_fill
+
+
+        # --- Step-by-step logic based on the missing slot ---
+
+        # 1. Handle prerequisites for tools
+        if next_missing_slot == "shop_id" and not _tool_already_run(state, "searchShops"):
+             logger.debug("Prerequisite: Running search_shops tool.")
+             state.phase = ConversationPhase.SEARCHING_SHOPS
+             return PolicyDecision(
+                 action=Action.RUN_TOOL, tool="search_shops", goal=Goal.BOOK_APPOINTMENT
+             )
+
+        if next_missing_slot == "course_id" and bc.shop_id and not _tool_already_run(state, "searchCourses"):
+            logger.debug("Prerequisite: Running searchCourses tool.")
+            state.phase = ConversationPhase.SELECTING_PACKAGE
+            return PolicyDecision(
+                action=Action.RUN_TOOL,
+                tool="search_courses",
+                goal=Goal.BOOK_APPOINTMENT,
+                payload={"shopId": bc.shop_id, "duration": bc.duration},
+            )
+
+        if next_missing_slot == "start_time":
+            # Check if all prerequisites for searching slots are met
+            slot_search_prereqs = ["shop_id", "date", "number_of_people", "duration", "course_id"]
+            if all(getattr(bc, p, None) is not None for p in slot_search_prereqs):
+                 if not _tool_already_run(state, "searchAvailableSlots"):
+                    logger.debug("Prerequisite: Running searchAvailableSlots tool.")
+                    state.phase = ConversationPhase.SEARCHING_SLOTS
                     return PolicyDecision(
                         action=Action.RUN_TOOL,
-                        tool=policy_tool,
-                        goal=state.current_goal,
+                        tool="search_available_slots",
+                        goal=Goal.BOOK_APPOINTMENT,
+                        payload=self._booking_args(bc)
                     )
-                # If it has been run, continue to the next tool in the chain.
-                continue
             else:
-                # A slot is missing. We need to ask for it.
-                # But first, check if there's a tool that can provide options for this slot.
-                if first_missing_slot == "shop_id" and not _tool_already_run(state, "searchShops"):
-                    return PolicyDecision(action=Action.RUN_TOOL, tool="search_shops", goal=state.current_goal)
-                if first_missing_slot == "course_id" and not _tool_already_run(state, "searchCourses"):
-                    return PolicyDecision(action=Action.RUN_TOOL, tool="search_courses", goal=state.current_goal)
+                 # If prerequisites are not met, find the first one that's missing and ask for it
+                 for prereq in slot_search_prereqs:
+                     if getattr(bc, prereq, None) is None:
+                         next_missing_slot = prereq
+                         break
 
+
+        if next_missing_slot == "therapist_id" and bc.number_of_people == 1 and not _tool_already_run(state, "getTherapists"):
+            therapist_search_prereqs = ["shop_id", "date", "start_time", "duration"]
+            if all(getattr(bc, p, None) is not None for p in therapist_search_prereqs):
+                logger.debug("Prerequisite: Running getTherapists tool.")
+                state.phase = ConversationPhase.SELECTING_THERAPIST
                 return PolicyDecision(
-                    action=Action.ASK_SLOT,
-                    slot=first_missing_slot,
-                    goal=state.current_goal,
+                    action=Action.RUN_TOOL,
+                    tool="get_therapists",
+                    goal=Goal.BOOK_APPOINTMENT,
+                    payload=self._booking_args(bc)
                 )
 
-        # If we've gone through the whole chain, all info is gathered. Confirm the final booking.
-        return PolicyDecision(
-            action=Action.CONFIRM_ACTION,
-            goal=Goal.BOOK_APPOINTMENT,
-            tool="createBooking",
-            message="I have all the necessary information. Shall I proceed with the booking?",
+        # 2. If a slot is missing, ask for it
+        if next_missing_slot:
+            logger.debug(f"Asking for slot: {next_missing_slot}")
+            state.phase = self.get_phase_for_slot(next_missing_slot)
+            return PolicyDecision(
+                action=Action.ASK_SLOT,
+                slot=next_missing_slot,
+                goal=Goal.BOOK_APPOINTMENT,
+            )
+
+        # 3. If all slots are filled, move to confirmation
+        if not next_missing_slot and bc.phone_number:
+            logger.info("All information gathered. Moving to final confirmation.")
+            state.phase = ConversationPhase.CONFIRMING_BOOKING
+            booking_summary = self._generate_booking_summary(bc)
+            state.pending_confirm = {
+                "tool": "createBooking",
+                "intent": "create_booking",
+                "arguments": self._booking_args(bc),
+            }
+            return PolicyDecision(
+                action=Action.CONFIRM_ACTION,
+                goal=Goal.BOOK_APPOINTMENT,
+                tool="createBooking",
+                payload=self._booking_args(bc),
+                message=f"Please review your booking details:\n{booking_summary}\n\nShall I proceed with the booking?",
+            )
+
+        # 4. Fallback: This should ideally not be reached.
+        logger.error(
+            f"Fallback reached in booking step. Context: {self._booking_args(bc)}"
         )
+        return PolicyDecision(
+            action=Action.REQUEST_CLARIFICATION,
+            message="I'm not sure what to do next. Could you clarify?",
+        )
+    
+    def _generate_booking_summary(self, context: BookingContext) -> str:
+        """Generates a human-readable summary of the booking."""
+        summary = [
+            f"- Shop: {context.shop_name or context.shop_id}",
+            f"- Date: {context.date}",
+            f"- Time: {context.start_time}",
+            f"- Guests: {context.number_of_people}",
+            f"- Main Course: {context.course_name or context.course_id}",
+        ]
+        if context.addon_names:
+            summary.append(f"- Add-ons: {', '.join(context.addon_names)}")
+        
+        summary.append(f"- Total Duration: {context.duration} minutes")
+
+        if context.therapist_name:
+            summary.append(f"- Therapist: {context.therapist_name}")
+        
+        summary.append(f"- Phone Number: {context.phone_number}")
+        
+        return "\n".join(summary)
+
+
+    def _is_booking_complete(self, context: BookingContext) -> bool:
+        """Legacy check, the new sequence-based check is primary."""
+        # This can be simplified or removed, but we'll keep it for now
+        # to avoid breaking other parts of the system that might use it.
+        required = ["shop_id", "date", "number_of_people", "course_id", "start_time", "phone_number"]
+        return all(getattr(context, slot, None) is not None for slot in required)
+
 
     def _decide_confirmation(
         self, state: ConversationState, intent: str, message: str
     ) -> PolicyDecision:
         pending = state.pending_confirm or {}
+        
+        if not pending:
+            logger.warning("Confirmation intent received, but nothing is pending confirmation.")
+            return PolicyDecision(
+                action=Action.REQUEST_CLARIFICATION,
+                message="Sorry, I don't have anything to confirm right now. What would you like to do?",
+            )
+
         text = message.strip().lower()
 
-        if _message_contains_token(text, _YES_TOKENS):
-            return PolicyDecision(
+        if intent == "confirmation" or _message_contains_token(text, _YES_TOKENS):
+            logger.info("Confirmation matched YES token or confirmation intent.")
+            tool_to_execute = pending.get("tool")
+            tool_payload = pending.get("arguments", {})
+            logger.info(f"Executing write action for tool: {tool_to_execute} with payload: {tool_payload}")
+            decision = PolicyDecision(
                 action=Action.EXECUTE_WRITE_ACTION,
-                tool=pending.get("tool"),
+                tool=tool_to_execute,
                 goal=state.current_goal,
-                payload=pending.get("arguments", {}),
+                payload=tool_payload,
             )
+            logger.info(f"Returning decision to execute write: {decision}")
+            return decision
+
         if _message_contains_token(text, _NO_TOKENS):
+            logger.info("Confirmation matched NO token.")
+            state.pending_confirm = None
             return PolicyDecision(
                 action=Action.CLEAR_PENDING_ACTION,
                 message="Okay, I won't do that. What would you like to do instead?",
             )
 
+        logger.warning(f"Confirmation did not match YES/NO tokens. Text: '{text}'")
+
         # If the user provides new information instead of confirming, it could be a correction.
         # For now, we'll just ask for a clear confirmation.
         return PolicyDecision(
             action=Action.CONFIRM_ACTION,
+            tool=pending.get("tool"), # Pass the tool again
             goal=state.current_goal,
             payload=pending,
             message="Please confirm by saying 'yes' or 'no'.",

@@ -1,4 +1,5 @@
 # chatbot/tools/write_tools.py
+import json
 from chatbot.gateway.client import HTTPClient
 from chatbot.models import (
     CancelBookingRequest,
@@ -21,7 +22,9 @@ class CreateBookingTool(BaseTool[CreateBookingRequest, CreateBookingResponse]):
         self._client = http_client
 
     async def execute(self, request: CreateBookingRequest) -> CreateBookingResponse:
-        response = await self._client.post("/bookings", json=request.model_dump(mode="json"))
+        response = await self._client.post(
+            "/bookings", json=json.loads(request.model_dump_json(by_alias=True))
+        )
         return CreateBookingResponse(**response)
 
 

@@ -41,7 +41,7 @@ class SlotService:
 
         current_time = open_time
         if start_time:
-            start_time_obj = datetime.strptime(start_time, '%H:%M').time()
+            start_time_obj = time.fromisoformat(start_time)
             current_time = datetime.combine(date_obj, start_time_obj)
 
         while current_time + timedelta(minutes=duration) <= close_time:

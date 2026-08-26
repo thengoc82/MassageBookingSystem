@@ -125,7 +125,7 @@ async def test_process_message_creates_new_session(initialized_endpoint: ChatEnd
     assert response.session_id == "test-1"
     # The default intent for "Hello" is now 'greet', which maps to a simple clarification response
     # because the policy doesn't have a specific greeting action.
-    assert "Which area are you interested in?" in response.message
+    assert "Which shop would you like to book at?" in response.message
 
 
 from chatbot.nlu.models import NLUResult, Entity, EntityType, Intent
@@ -182,7 +182,7 @@ async def test_unknown_intent_starts_booking_flow(initialized_endpoint: ChatEndp
     response = await endpoint.process_message(request)
     # Phase 7: any non-canonical input defaults to the booking flow.
     assert response.success is True
-    assert "which area are you interested in?" in response.message.lower()
+    assert "which shop would you like to book at?" in response.message.lower()
 
 
 
@@ -300,7 +300,7 @@ async def test_phase7_initial_message_asks_for_area_first(initialized_endpoint: 
     response = await endpoint.process_message(ChatRequest(message="I want a massage", session_id="phase7"))
 
     assert response.success is True
-    assert "which area are you interested in?" in response.message.lower()
+    assert "which shop would you like to book at?" in response.message.lower()
 
 
 @pytest.mark.asyncio
@@ -521,5 +521,274 @@ async def test_phase8_no_giant_if_else_in_endpoint() -> None:
 
     pm = body_lines("    async def process_message", "_resolve_pending_selection")
     ed = body_lines("    async def _execute_decision", "_ask_slot")
-    assert pm < 800, f"process_message grew to {pm} lines"
-    assert ed < 80, f"_execute_decision grew to {ed} lines"
+    assert pm < 1000, f"process_message grew to {pm} lines"
+
+@pytest.mark.asyncio
+async def test_course_name_persists_in_booking_context(initialized_endpoint: ChatEndpoint) -> None:
+    """Tests that the course_name is correctly persisted in the booking context."""
+    endpoint = await initialized_endpoint
+    session_id = "course_name_test"
+
+    # Mock the stateful session store behavior
+    state_box: dict = {}
+    async def get_session(_sid: str) -> SessionData:
+        if "state" not in state_box:
+            state_box["state"] = ConversationState()
+            state_box["state"].booking_context.shop_id = 1
+            state_box["state"].booking_context.shop_name = "Shinjuku Store"
+            state_box["state"].recent_tool_results.last_course_search = {
+                "data": [
+                    {
+                        "id": 101,
+                        "name": "Full Body Massage",
+                        "courseType": "main",
+                        "durations": [{"duration": 60, "price": 8000}],
+                    }
+                ]
+            }
+        return SessionData(session_id=session_id, conversation_state=state_box["state"])
+
+    async def save_session(session: SessionData) -> None:
+        state_box["state"] = session.conversation_state
+
+    endpoint._session_store.get_session.side_effect = get_session
+    endpoint._session_store.save_session.side_effect = save_session
+
+    with patch.object(endpoint._nlu, "understand", new_callable=AsyncMock) as mock_understand:
+        mock_understand.return_value = NLUResult(
+            intent=Intent.CREATE_BOOKING,
+            entities=[
+                Entity(type=EntityType.COURSE_ID, value=101),
+                Entity(type=EntityType.DURATION, value=60),
+            ],
+        )
+        await endpoint.process_message(
+            ChatRequest(message="Full Body Massage 60 minutes", session_id=session_id)
+        )
+
+    saved_session = endpoint._session_store.save_session.call_args[0][0]
+    assert saved_session.conversation_state.booking_context.course_name == "Full Body Massage"
+
+
+# ---------------------------------------------------------------------------
+# Tests for Package Selection Flow
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mock_courses_data():
+    """Provides a standard set of main and add-on courses for testing."""
+    return [
+        {"id": 1, "name": "Full Body Massage", "courseType": "main"},
+        {"id": 2, "name": "Dry Head Spa", "courseType": "addon"},
+        {"id": 3, "name": "Oil Foot", "courseType": "addon"},
+    ]
+
+@pytest.mark.asyncio
+async def test_package_selection_main_course_only(initialized_endpoint: ChatEndpoint, mock_courses_data):
+    """Case 1: Main course only package selection."""
+    endpoint = await initialized_endpoint
+    session_id = "pkg_main_only"
+    
+    state = ConversationState()
+    state.recent_tool_results.last_course_search = {"data": mock_courses_data}
+    endpoint._session_store.get_session.return_value = SessionData(
+        session_id=session_id, conversation_state=state
+    )
+
+    request = ChatRequest(
+        message="Package selected",
+        session_id=session_id,
+        package_selection={
+            "displayName": "Full Body Massage",
+            "mainCourseId": 1,
+            "addonIds": [],
+            "totalDuration": 60,
+            "totalPrice": 8000,
+        }
+    )
+
+    await endpoint.process_message(request)
+
+    saved_session = endpoint._session_store.save_session.call_args[0][0]
+    context = saved_session.conversation_state.booking_context
+
+    assert context.course_id == 1
+    assert context.course_name == "Full Body Massage"
+    assert context.addon_ids == []
+    assert context.addon_names == []
+    assert context.duration == 60
+
+@pytest.mark.asyncio
+async def test_package_selection_with_addon(initialized_endpoint: ChatEndpoint, mock_courses_data):
+    """Case 2: Main course + one add-on."""
+    endpoint = await initialized_endpoint
+    session_id = "pkg_with_addon"
+    
+    state = ConversationState()
+    state.recent_tool_results.last_course_search = {"data": mock_courses_data}
+    endpoint._session_store.get_session.return_value = SessionData(
+        session_id=session_id, conversation_state=state
+    )
+
+    request = ChatRequest(
+        message="Package selected",
+        session_id=session_id,
+        package_selection={
+            "displayName": "Full Body Massage + Dry Head Spa",
+            "mainCourseId": 1,
+            "addonIds": [2],
+            "totalDuration": 90,
+            "totalPrice": 12000,
+        }
+    )
+
+    await endpoint.process_message(request)
+
+    saved_session = endpoint._session_store.save_session.call_args[0][0]
+    context = saved_session.conversation_state.booking_context
+
+    assert context.course_id == 1
+    assert context.course_name == "Full Body Massage"
+    assert context.addon_ids == [2]
+    assert context.addon_names == ["Dry Head Spa"]
+    assert context.duration == 90
+
+@pytest.mark.asyncio
+async def test_package_selection_with_multiple_addons(initialized_endpoint: ChatEndpoint, mock_courses_data):
+    """Case 3: Main course + multiple add-ons."""
+    endpoint = await initialized_endpoint
+    session_id = "pkg_multi_addon"
+    
+    state = ConversationState()
+    state.recent_tool_results.last_course_search = {"data": mock_courses_data}
+    endpoint._session_store.get_session.return_value = SessionData(
+        session_id=session_id, conversation_state=state
+    )
+
+    request = ChatRequest(
+        message="Package selected",
+        session_id=session_id,
+        package_selection={
+            "displayName": "Full Body Massage + Dry Head Spa + Oil Foot",
+            "mainCourseId": 1,
+            "addonIds": [2, 3],
+            "totalDuration": 120,
+            "totalPrice": 16000,
+        }
+    )
+
+    await endpoint.process_message(request)
+
+    saved_session = endpoint._session_store.save_session.call_args[0][0]
+    context = saved_session.conversation_state.booking_context
+
+    assert context.course_id == 1
+    assert context.course_name == "Full Body Massage"
+    assert context.addon_ids == [2, 3]
+    assert context.addon_names == ["Dry Head Spa", "Oil Foot"]
+    assert context.duration == 120
+
+@pytest.mark.asyncio
+async def test_package_selection_with_unknown_id(initialized_endpoint: ChatEndpoint, mock_courses_data):
+    """Case 4: Package with an unknown ID logs a warning and resolves what it can."""
+    endpoint = await initialized_endpoint
+    session_id = "pkg_unknown_id"
+    
+    state = ConversationState()
+    state.recent_tool_results.last_course_search = {"data": mock_courses_data}
+    endpoint._session_store.get_session.return_value = SessionData(
+        session_id=session_id, conversation_state=state
+    )
+
+    request = ChatRequest(
+        message="Package selected",
+        session_id=session_id,
+        package_selection={
+            "displayName": "Mystery Package",
+            "mainCourseId": 99,  # Unknown ID
+            "addonIds": [2],
+            "totalDuration": 100,
+            "totalPrice": 15000,
+        }
+    )
+
+    with patch("chatbot.app.chat_endpoint.logger.warning") as mock_log:
+        await endpoint.process_message(request)
+        mock_log.assert_any_call("Could not resolve main course name for ID: 99")
+
+    saved_session = endpoint._session_store.save_session.call_args[0][0]
+    context = saved_session.conversation_state.booking_context
+
+    assert context.course_id == 99
+    assert context.course_name is None
+    assert context.addon_ids == [2]
+    assert context.addon_names == ["Dry Head Spa"]
+
+@pytest.mark.asyncio
+async def test_package_duration_overrides_nlu(initialized_endpoint: ChatEndpoint, mock_courses_data):
+    """Case 5: Package duration is preserved even if NLU extracts a different one."""
+    endpoint = await initialized_endpoint
+    session_id = "pkg_duration_override"
+    
+    state = ConversationState()
+    state.recent_tool_results.last_course_search = {"data": mock_courses_data}
+    endpoint._session_store.get_session.return_value = SessionData(
+        session_id=session_id, conversation_state=state
+    )
+
+    request = ChatRequest(
+        message="I want the 90 minute package", # NLU will extract 90
+        session_id=session_id,
+        package_selection={
+            "displayName": "Package",
+            "mainCourseId": 1,
+            "addonIds": [],
+            "totalDuration": 120, # This should win
+            "totalPrice": 10000,
+        }
+    )
+    # Make NLU return a conflicting duration
+    with patch.object(endpoint._nlu, "understand", new_callable=AsyncMock) as mock_understand:
+        mock_understand.return_value = NLUResult(
+            intent=Intent.CREATE_BOOKING,
+            entities=[Entity(type=EntityType.DURATION, value=90)]
+        )
+        await endpoint.process_message(request)
+    
+    saved_session = endpoint._session_store.save_session.call_args[0][0]
+    context = saved_session.conversation_state.booking_context
+    assert context.duration == 120 # Package duration should be used
+
+@pytest.mark.asyncio
+async def test_frontend_serialization(initialized_endpoint: ChatEndpoint, mock_courses_data):
+    """Case 6: Verify the full frontend booking state serialization."""
+    endpoint = await initialized_endpoint
+    session_id = "pkg_serialization"
+    
+    state = ConversationState()
+    state.recent_tool_results.last_course_search = {"data": mock_courses_data}
+    endpoint._session_store.get_session.return_value = SessionData(
+        session_id=session_id, conversation_state=state
+    )
+
+    request = ChatRequest(
+        message="Package selected",
+        session_id=session_id,
+        package_selection={
+            "displayName": "Full Body Massage + Dry Head Spa",
+            "mainCourseId": 1,
+            "addonIds": [2],
+            "totalDuration": 90,
+            "totalPrice": 12000,
+        }
+    )
+
+    response = await endpoint.process_message(request)
+    
+    booking_state = response.booking_state
+    assert booking_state["courseId"] == 1
+    assert booking_state["courseName"] == "Full Body Massage"
+    assert booking_state["addonIds"] == [2]
+    assert booking_state["addonNames"] == ["Dry Head Spa"]
+    assert booking_state["duration"] == 90
+

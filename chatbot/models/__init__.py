@@ -71,6 +71,7 @@ class TherapistInfo(BaseModel):
     therapistId: int
     name: str
     gender: str
+    isAvailable: bool
 
 
 class SearchAvailableSlotsResponse(BaseModel):
@@ -197,9 +198,11 @@ class CreateBookingAddOn(BaseModel):
 
 class CreateBookingRequest(BaseModel):
     shopId: int
+    userName: str | None = None
     phoneNumber: str
     bookingDate: date
     startTime: time
+    duration: int = Field(ge=1)
     numberOfPeople: int
     services: list[CreateBookingService]
     addOns: list[CreateBookingAddOn] | None = None

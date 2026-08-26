@@ -322,3 +322,34 @@ def test_policy_decision_defaults():
     assert pd.tool is None
     assert pd.slot is None
     assert pd.payload == {}
+
+
+# ---------------------------------------------------------------------------
+# Root Cause Analysis Test Case
+# ---------------------------------------------------------------------------
+from chatbot.nlu.models import NLUResult, Entity, EntityType, Intent
+
+def test_shop_id_provided_directly_advances_to_courses():
+    """
+    Verifies the fix: When NLU provides a SHOP_ID directly, the context is
+    updated before the policy runs, allowing it to correctly advance to the
+    next step (search_courses) instead of asking for 'area'.
+    """
+    policy = DialoguePolicyManager()
+    state = ConversationState()
+    
+    nlu_result = NLUResult(
+        intent=Intent.PROVIDE_INFORMATION,
+        entities=[Entity(type=EntityType.SHOP_ID, value=1, raw_text="shinjuku")]
+    )
+
+    # In the real flow (chat_endpoint), the entities are now applied to the
+    # state *before* the policy is called. We simulate that here.
+    state.booking_context.shop_id = 1
+    
+    decision = policy.decide(state, nlu_result.intent, message="shinjuku", nlu_result=nlu_result)
+    
+    # Assert the CORRECT behavior.
+    assert decision.action == Action.RUN_TOOL
+    assert decision.tool == "search_courses"
+    assert state.booking_context.shop_id == 1

@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from chatbot import app
 from chatbot.app.config import Settings
@@ -44,19 +44,28 @@ from chatbot.conversation.goals import Goal
 from chatbot.conversation.interfaces import IntentResponse
 from chatbot.conversation.policy import Action, DialoguePolicyManager, PolicyDecision
 from chatbot.conversation.slot_filling import SlotFillingManager
-from chatbot.conversation.slot_parser import parse_and_fill_slots
 from chatbot.conversation.state import (
     ConversationManager,
     ConversationPhase,
     ConversationState,
+    BookingContext,
+    RecentToolResults,
 )
-from chatbot.nlu.models import NLUResult, Intent
+from chatbot.nlu.models import NLUResult, Intent, EntityType
 from chatbot.nlu.nlu import NLU
-
-
+from chatbot.app.package_generator import generate_packages
 
 
 logger = logging.getLogger(__name__)
+
+
+class PackageSelection(BaseModel):
+    """Payload for a pre-selected package from the frontend."""
+    display_name: str = Field(..., alias="displayName")
+    main_course_id: int = Field(..., alias="mainCourseId")
+    addon_ids: list[int] = Field(default_factory=list, alias="addonIds")
+    total_duration: int = Field(..., alias="totalDuration")
+    total_price: int = Field(..., alias="totalPrice")
 
 
 class ChatRequest(BaseModel):
@@ -64,6 +73,9 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str
     user_id: str | None = None
+    start_conversation: bool = False
+    package_selection: PackageSelection | None = Field(default=None, alias="packageSelection")
+
 
 
 class ChatResponse(BaseModel):
@@ -72,7 +84,9 @@ class ChatResponse(BaseModel):
     message: str
     session_id: str
     phase: ConversationPhase
-    data: Any = None
+    booking_state: dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -134,6 +148,35 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
+import traceback
+
+def _extract_answer_from_faq(faq_content: str) -> str:
+    """
+    Extracts the answer from a FAQ string that contains both question and answer.
+    Assumes the first '?' or ':' separates the question from the answer.
+    """
+    # Find the position of the first question mark
+    question_mark_pos = faq_content.find("?")
+    # Find the position of the first colon
+    colon_pos = faq_content.find(":")
+
+    # Determine the split position
+    split_pos = -1
+    if question_mark_pos != -1 and colon_pos != -1:
+        split_pos = min(question_mark_pos, colon_pos)
+    elif question_mark_pos != -1:
+        split_pos = question_mark_pos
+    elif colon_pos != -1:
+        split_pos = colon_pos
+
+    # If a separator is found, extract the answer part
+    if split_pos != -1:
+        return faq_content[split_pos + 1 :].lstrip()
+
+    # If no separator is found, return the original content
+    return faq_content
+
+
 class ChatEndpoint:
     """Web chat endpoint handler."""
 
@@ -178,12 +221,14 @@ class ChatEndpoint:
         except Exception as e:
             logger.error(f"Failed to pre-fetch shops: {e}")
 
-        # Pre-fetch courses to prime the NLU
+        # This is commented out because courses are shop-specific and cannot be
+        # pre-fetched globally at startup. The NLU's course knowledge is
+        # dynamically updated after the `search_courses` tool is run for a
+        # specific shop.
         courses = []
         # try:
-        #     # Assuming courses are not shop-specific for now. If they are, 
-        #     # this logic will need to be adapted to fetch courses per shop.
         #     course_tool = SearchCoursesTool(self._http_client)
+        #     # This call is invalid as SearchCoursesRequest requires a shopId.
         #     course_result = await course_tool.execute(SearchCoursesRequest())
         #     if course_result.success:
         #         courses = course_result.data
@@ -217,9 +262,9 @@ class ChatEndpoint:
 
         if self._knowledge_service is None and self._settings.enable_rag:
             embedding_service = SentenceTransformerEmbeddingService(
-                model_name=self._settings.embedding_model,
-                embedding_dim=self._settings.embedding_dim,
+                model_name="all-MiniLM-L6-v2"
             )
+            self._settings.embedding_dim = embedding_service.embedding_dim
             vector_store = PgVectorStore(
                 dsn=self._settings.pg_dsn,
                 embedding_dim=self._settings.embedding_dim,
@@ -260,6 +305,9 @@ class ChatEndpoint:
         logger.info(f"Processing message: '{request.message}' in session: {request.session_id}")
         await self.initialize()
 
+        if request.start_conversation:
+            return await self._start_conversation(request)
+
         session_store = self._session_store
         assert session_store is not None
         session = await session_store.get_session(request.session_id)
@@ -267,21 +315,81 @@ class ChatEndpoint:
             session = await session_store.create_session(request.session_id, request.user_id)
 
         state = session.conversation_state
+        logger.info(f"State at start of turn: {state}")
 
-        # 0. Resolve any list selections from the user's message
-        from chatbot.conversation.slot_parser import _handle_ordinal_selection
-        await _handle_ordinal_selection(request.message, state)
+        # If a package is selected, apply it to the context FIRST.
+        if request.package_selection:
+            pkg = request.package_selection
+            logger.info(f"Received packageSelection payload: {pkg}")
+            
+            # Apply package data to the booking context
+            state.booking_context.course_id = pkg.main_course_id
+            state.booking_context.addon_ids = pkg.addon_ids
+            state.booking_context.duration = pkg.total_duration
+
+            # Resolve and set course and add-on names
+            course_name, addon_names = self._resolve_package_names(
+                state, pkg.main_course_id, pkg.addon_ids
+            )
+            state.booking_context.course_name = course_name
+            state.booking_context.addon_names = addon_names
+
+            logger.info(f"Received packageSelection: main_course_id={pkg.main_course_id}, addon_ids={pkg.addon_ids}, total_duration={pkg.total_duration}")
+            logger.info(f"Resolved package names: course_name='{course_name}', addon_names={addon_names}")
+            logger.info(f"Final BookingContext: {state.booking_context.model_dump()}")
 
         # 1. NLU understands the message
         focused_slot = state.pending_slot_to_fill
         nlu_result = await self._nlu.understand(request.message, state, focused_slot=focused_slot)
+        
+        if nlu_result and nlu_result.entities:
+            logger.info(f"NLU extracted entities: {nlu_result.entities}")
+            nlu_duration = nlu_result.entity_value(EntityType.DURATION)
+            logger.info(f"NLU extracted duration: {nlu_duration}")
+        else:
+            logger.info("NLU extracted no entities.")
+
+
+        logger.info(f"[MULTI_PASS_NLU] First pass entities: {nlu_result.entities if nlu_result else 'None'}")
+
+
+        # 2. Multi-pass NLU for course extraction
+        if (
+            nlu_result and nlu_result.intent == Intent.CREATE_BOOKING
+            and nlu_result.entity_value(EntityType.SHOP_ID)
+            and not nlu_result.entity_value(EntityType.COURSE_ID)
+        ):
+            shop_id = nlu_result.entity_value(EntityType.SHOP_ID)
+            logger.info(f"[MULTI_PASS_NLU] Running search_courses for shop_id {shop_id} to enrich NLU knowledge")
+            
+            try:
+                course_tool = self._tool_registry.get("searchCourses")
+                course_result = await course_tool.execute(SearchCoursesRequest(shopId=int(shop_id)))
+
+                if course_result.success:
+                    courses = course_result.data
+                    self._nlu.set_known_items(courses=courses)
+                    logger.info(f"[MULTI_PASS_NLU] Known courses updated: {[c.courseName for c in courses]}")
+
+                    # Run NLU again with the enriched knowledge
+                    second_nlu_result = await self._nlu.understand(request.message, state)
+                    logger.info(f"[MULTI_PASS_NLU] Second pass entities: {second_nlu_result.entities if second_nlu_result else 'None'}")
+
+                    if second_nlu_result and second_nlu_result.entities:
+                        # Merge entities, giving preference to the second pass for duplicates.
+                        first_pass_entities = {e.type: e for e in nlu_result.entities}
+                        second_pass_entities = {e.type: e for e in second_nlu_result.entities}
+                        merged_entities_map = {**first_pass_entities, **second_pass_entities}
+                        nlu_result.entities = list(merged_entities_map.values())
+                        logger.info(f"[MULTI_PASS_NLU] Final merged entities: {nlu_result.entities}")
+
+            except Exception as e:
+                logger.error(f"[MULTI_PASS_NLU] Error during second pass: {e}", exc_info=True)
+
+
         state.nlu_result = nlu_result
         logger.info(f"NLU result: {nlu_result}")
 
-        # 2. Apply NLU entities to the booking context immediately
-        self._conversation_manager.apply_nlu_entities_to_booking_context(state, nlu_result.entities)
-        logger.info(f"Booking context after NLU apply: {state.booking_context}")
-        
         # 3. Decide on the main conversation flow:
         #    - If we are in the middle of filling slots, continue doing that.
         #    - Otherwise, ask the policy manager for the next high-level action.
@@ -307,13 +415,25 @@ class ChatEndpoint:
                 response = await self._execute_pending_read_action(state, action=action_to_run)
         else:
             # Not in a slot-filling loop, so get the next decision from the policy.
+            # CRITICAL FIX: Apply NLU entities directly to the context before
+            # the policy decides the next move. This handles cases where the user
+                        # provides information outside of an active slot-filling loop.
+            if nlu_result and nlu_result.entities:
+                package_selected = request.package_selection is not None
+                logger.info(f"booking_context.duration before NLU merge: {state.booking_context.duration}")
+                self._conversation_manager.apply_nlu_entities_to_booking_context(
+                    state, nlu_result.entities, package_selected=package_selected
+                )
+                logger.info(f"booking_context.duration after NLU merge: {state.booking_context.duration}")
+
             logger.info("No pending action, consulting policy.")
             intent = nlu_result.intent if nlu_result else Intent.UNKNOWN
             decision = self._policy.decide(state, intent, message=request.message, nlu_result=nlu_result)
             logger.info(f"Policy decision: {decision}")
+
             response = await self._execute_decision(state, decision, request.message)
 
-        # 4. Save the final state and prepare the response
+         # 4. Save the final state and prepare the response
         try:
             session.conversation_state = response.state
             await session_store.save_session(session)
@@ -325,15 +445,57 @@ class ChatEndpoint:
             raise
 
         logger.info(f"Final response message: {response.message}, Phase: {response.state.phase}")
+        return ChatResponse(
+            success=response.success,
+            message=str(response.message or ""),
+            session_id=session.session_id,
+            phase=response.state.phase,
+            booking_state=response.state.to_frontend_booking_state(),
+            data=response.data,
+            payload=decision.payload,
+            error=str(response.error) if response.error else None,
+        )
+
+
+
+    async def _start_conversation(self, request: ChatRequest) -> ChatResponse:
+        """Handles the very first turn of a new conversation."""
+        logger.info(f"Starting new conversation for session: {request.session_id}")
+        session_store = self._session_store
+        assert session_store is not None
+
+        # Create a new session and initial state
+        session = await session_store.create_session(request.session_id, request.user_id)
+        state = session.conversation_state
+
+        # Get the initial action from the policy (e.g., greet and ask area)
+        decision = self._policy.decide(state, Intent.GREETING, message="", nlu_result=None)
+        logger.info(f"Initial policy decision: {decision}")
+        
+        # Execute the decision
+        response = await self._execute_decision(state, decision, "")
+
+        # Save state and return the response
+        try:
+            session.conversation_state = response.state
+            await session_store.save_session(session)
+        except AttributeError:
+            if isinstance(response, ChatResponse):
+                await session_store.save_session(session)
+                return response
+            raise
 
         return ChatResponse(
             success=response.success,
             message=str(response.message or ""),
             session_id=session.session_id,
             phase=response.state.phase,
+            booking_state=response.state.to_frontend_booking_state(),
             data=response.data,
+            payload=decision.payload,
             error=str(response.error) if response.error else None,
         )
+
 
 
 
@@ -341,17 +503,57 @@ class ChatEndpoint:
     # ------------------------------------------------------------------
     # Action dispatcher — one handler per Action enum value
     # ------------------------------------------------------------------
+    def _resolve_package_names(
+        self,
+        state: ConversationState,
+        main_course_id: int,
+        addon_ids: list[int],
+    ) -> tuple[str | None, list[str]]:
+        """Finds course and add-on names from the last course search result."""
+        course_name = None
+        addon_names = []
+        
+        last_search = state.recent_tool_results.last_course_search
+        if not last_search or not last_search.get("data"):
+            logger.warning("Cannot resolve package names: last_course_search is empty.")
+            return None, []
+
+        all_courses = last_search["data"]
+        
+        # Create a lookup map for faster access
+        course_map = {course['courseId']: course['courseName'] for course in all_courses if 'courseId' in course and 'courseName' in course}
+
+        # Find main course name
+        course_name = course_map.get(main_course_id)
+        if not course_name:
+            logger.warning(f"Could not resolve main course name for ID: {main_course_id}")
+
+        # Find add-on names
+        if addon_ids:
+            resolved_names = []
+            for addon_id in addon_ids:
+                name = course_map.get(addon_id)
+                if name:
+                    resolved_names.append(name)
+                else:
+                    logger.warning(f"Could not resolve addon name for ID: {addon_id}")
+            addon_names = resolved_names
+            
+        return course_name, addon_names
+
     async def _execute_decision(
         self,
         state: ConversationState,
-        decision: PolicyDecision,
-        message: str,
-    ) -> IntentResponse:
+         decision: PolicyDecision,
+         message: str,
+     ) -> IntentResponse:
+        logger.info(f"Received decision: {decision}")
         if self._slot_manager is None:
             self._ensure_slot_manager()
         assert self._slot_manager is not None
 
         action = decision.action
+        tool = decision.tool or ''
 
         if action == Action.ASK_SLOT:
             return await self._ask_slot(state, decision)
@@ -369,7 +571,7 @@ class ChatEndpoint:
             return await self._execute_write(state, decision)
 
         if action == Action.ANSWER_FAQ:
-            return await self._answer_faq(state, decision, message)
+            return await self._faq_search(state, message)
 
         if action == Action.RESUME_BOOKING:
             return await self._resume_booking(state, decision)
@@ -473,8 +675,6 @@ class ChatEndpoint:
             return await self._check_eligibility(state, message)
         if registry_tool == "lookupBooking":
             return await self._lookup_booking(state, message)
-        if registry_tool == "faqSearch":
-            return await self._faq_search(state, message)
 
         return IntentResponse(
             False, "I'm sorry, I couldn't complete that request.", state
@@ -489,31 +689,38 @@ class ChatEndpoint:
     def _confirm_action(
         self, state: ConversationState, decision: PolicyDecision
     ) -> IntentResponse:
-        state.pending_confirm = {
+       state.pending_confirm = {
             "tool": decision.tool,
             "intent": decision.payload.get("intent"),
             "arguments": decision.payload.get("arguments", decision.payload),
-        }
-        msg = decision.message or "Please confirm to continue. Reply 'yes' or 'no'."
-        return IntentResponse(True, msg, state)
+       }
+       logger.info(f"Setting pending_confirm: {state.pending_confirm}")
+       msg = decision.message or "Please confirm to continue. Reply 'yes' or 'no'."
+       return IntentResponse(True, msg, state)
 
     async def _execute_write(
         self, state: ConversationState, decision: PolicyDecision
     ) -> IntentResponse:
-        assert self._tool_registry is not None
-        tool_name = decision.tool or ""
+        pending = state.pending_confirm or {}
+        tool_name = pending.get("tool") or decision.tool or ""
+        payload = pending.get("arguments") or decision.payload or {}
+
         tool = self._tool_registry.get(tool_name)
+        
         if tool is None:
+            logger.error(f"Tool '{tool_name}' not found in registry.")
             state.pending_confirm = None
             state.tool_failure_count += 1
             state.last_failed_tool = tool_name
             return IntentResponse(
                 True, "I'm sorry, I couldn't complete that. Let's try again.", state
             )
+        
         try:
-            request_model = self._build_write_request(tool_name, decision.payload)
+            request_model = self._build_write_request(tool_name, payload, state)
             result = await tool.execute(request_model)
         except Exception as exc:
+            logger.error(f"Error executing write tool {tool_name}: {exc}", exc_info=True)
             state.pending_confirm = None
             state.tool_failure_count += 1
             state.last_failed_tool = tool_name
@@ -526,6 +733,7 @@ class ChatEndpoint:
             return IntentResponse(
                 True, "I'm sorry, something went wrong. Please try again.", state
             )
+        
         state.pending_confirm = None
         state.tool_failure_count = 0
         state.last_failed_tool = None
@@ -533,12 +741,23 @@ class ChatEndpoint:
             state.last_tool_result = result.model_dump()
         except Exception:
             state.last_tool_result = None
+            
         if not getattr(result, "success", True):
             return IntentResponse(
                 True, _safe_tool_message(getattr(result, "message", "")), state
             )
+            
         msg = getattr(result, "message", "") or self._default_write_success(tool_name)
         state.current_goal = None
+        
+        # After a successful booking, reset the booking context for the next turn.
+        if tool_name == "createBooking" and getattr(result, "success", True):
+            logger.info("Booking successful. Resetting booking context and setting phase to BOOKING_COMPLETE.")
+            state.phase = ConversationPhase.BOOKING_COMPLETE
+            state.booking_context = BookingContext()
+            state.recent_tool_results = RecentToolResults()
+            state.pending_slot_to_fill = None
+
         return IntentResponse(True, msg, state, state.last_tool_result)
 
     @staticmethod
@@ -549,39 +768,46 @@ class ChatEndpoint:
             "cancelBooking": "Booking cancelled.",
         }.get(tool_name, "Done.")
 
-    def _build_write_request(self, tool_name: str, payload: dict[str, Any]):
-        """Translate policy payload into the tool's request model. Strip
-        fields the request doesn't accept (e.g. bookingCode on the wire
-        format becomes bookingId for the cancel endpoint)."""
-        clean = dict(payload or {})
-        clean.pop("intent", None)
-        clean.pop("tool", None)
-        if tool_name == "createBooking":
-            return CreateBookingRequest(**clean) if clean else CreateBookingRequest()
-        if tool_name == "modifyBooking":
-            return ModifyBookingRequest(**clean) if clean else ModifyBookingRequest()
-        if tool_name == "cancelBooking":
-            return CancelBookingRequest(**clean) if clean else CancelBookingRequest()
-        raise ValueError(f"unknown write tool: {tool_name}")
+    def _build_write_request(self, tool_name: str, payload: dict[str, Any], state: ConversationState):
+        """Translate policy payload into the tool's request model."""
+        context_data = state.booking_context.model_dump(exclude_none=True)
+        final_payload = {**context_data, **(payload or {})}
 
-    async def _answer_faq(
-        self,
-        state: ConversationState,
-        decision: PolicyDecision,
-        message: str,
-    ) -> IntentResponse:
-        if not self._knowledge_service:
-            return IntentResponse(
-                True,
-                "I don't have a knowledge base enabled right now. "
-                "I can help with bookings — what would you like to do?",
-                state,
-            )
-        assert self._tool_registry is not None
-        tool = self._tool_registry.get("faqSearch")
-        result = await tool.execute(FAQSearchRequest(query=message))
-        state.last_tool_result = result.model_dump() if hasattr(result, "model_dump") else None
-        return IntentResponse(True, getattr(result, "message", ""), state, state.last_tool_result)
+        if tool_name == "createBooking":
+            services = []
+            if final_payload.get("course_id"):
+                services.append(
+                    {
+                        "courseId": final_payload["course_id"],
+                        "personIndex": 1,  # Assuming 1 for now
+                    }
+                )
+
+            create_booking_payload = {
+                "shopId": final_payload.get("shop_id"),
+                "userName": final_payload.get("user_name"),
+                "phoneNumber": final_payload.get("phone_number"),
+                "bookingDate": final_payload.get("date"),
+                "startTime": final_payload.get("start_time"),
+                "duration": final_payload.get("duration"),
+                "numberOfPeople": final_payload.get("number_of_people"),
+                "services": services,
+                 "addOns": final_payload.get("addOns", []),
+                "therapistId": final_payload.get("therapist_id"),
+            }
+            logger.info(f"Final createBooking payload: {create_booking_payload}")
+
+            return CreateBookingRequest(**create_booking_payload)
+        if tool_name == "modifyBooking":
+            return ModifyBookingRequest(**final_payload)
+        if tool_name == "cancelBooking":
+            cancel_payload = {
+                "bookingCode": final_payload.get("booking_code"),
+                "phoneNumber": final_payload.get("phone_number")
+            }
+            return CancelBookingRequest(**{k: v for k, v in cancel_payload.items() if v is not None})
+            
+        raise ValueError(f"unknown write tool: {tool_name}")
 
     async def _resume_booking(
         self, state: ConversationState, decision: PolicyDecision
@@ -618,6 +844,8 @@ class ChatEndpoint:
     async def _next_booking_step(self, state: ConversationState) -> IntentResponse:
         """Drive the booking tool chain via the policy."""
         decision = self._policy._next_booking_step(state)
+        logger.info("BookingContext: %s", state.booking_context)
+
         if decision.action == Action.ASK_SLOT:
             return await self._ask_slot(state, decision)
         if decision.action == Action.RUN_TOOL:
@@ -676,6 +904,8 @@ class ChatEndpoint:
 
         state.last_tool_result = result.model_dump()
         state.recent_tool_results.last_shop_search = result.model_dump()
+        logger.info("Saved last_shop_search:")
+        logger.info(state.recent_tool_results.last_shop_search)
 
         if not result.success:
             return IntentResponse(False, _safe_tool_message(result.message), state, state.last_tool_result)
@@ -685,28 +915,13 @@ class ChatEndpoint:
             return IntentResponse(True, "I'm sorry, no shops are available right now. Please try again later.", state)
 
         # If an area has been specified, filter the shops.
-        area = state.booking_context.area
         shops_to_show = all_shops
-        if area:
-            shops_to_show = [s for s in all_shops if area.lower() in s.address.lower() or area.lower() in s.shopName.lower()]
-            if not shops_to_show:
-                 return IntentResponse(
-                    True,
-                    f"I'm sorry, no shops are available in {area}. Please try another area.",
-                    state,
-                    state.last_tool_result,
-                )
-
+        
         # Show the list AND prompt for selection.
         self._nlu.set_known_items(shops=shops_to_show)
         state.phase = ConversationPhase.SEARCHING_SHOPS
-        shop_lines = "\n".join(f"- {s.shopName} ({s.address})" for s in shops_to_show)
-        msg = f"Here are the available shops:\n{shop_lines}\n\nWhich shop would you like to visit?"
-        data = {
-            "options": [
-                s.model_dump() if hasattr(s, "model_dump") else s for s in shops_to_show
-            ]
-        }
+        msg = "Which shop would you like to visit?"
+        data = {"shops": [s.model_dump() for s in shops_to_show]}
         return IntentResponse(True, msg, state, data)
 
     async def _search_courses(
@@ -718,15 +933,30 @@ class ChatEndpoint:
         assert shop_id is not None, "shop_id must be populated before searching for courses"
         
         tool = self._tool_registry.get("searchCourses")
-        result = await tool.execute(SearchCoursesRequest(shopId=int(shop_id)))
-        state.last_tool_result = result.model_dump()
-        state.recent_tool_results.last_course_search = result.model_dump()
+        # Fetch main courses
+        main_courses_result = await tool.execute(SearchCoursesRequest(shopId=int(shop_id), type="main"))
+        main_courses = main_courses_result.data if main_courses_result.success else []
 
-        if not result.success:
-            return IntentResponse(False, _safe_tool_message(result.message), state, state.last_tool_result)
+        # Fetch add-on courses
+        addon_courses_result = await tool.execute(SearchCoursesRequest(shopId=int(shop_id), type="addon"))
+        addon_courses = addon_courses_result.data if addon_courses_result.success else []
+
+        # Combine and store both main and addon courses for future lookups
+        all_courses = main_courses + addon_courses
+        combined_result = {
+            "success": main_courses_result.success or addon_courses_result.success,
+            "message": main_courses_result.message,
+            "data": [c.model_dump() for c in all_courses]
+        }
+        state.last_tool_result = combined_result
+        state.recent_tool_results.last_course_search = combined_result
         
-        courses = result.data
-        if not courses:
+        logger.info(f"Saved last_course_search with {len(all_courses)} total courses.")
+
+        if not main_courses_result.success:
+            return IntentResponse(False, _safe_tool_message(main_courses_result.message), state, state.last_tool_result)
+        
+        if not main_courses and not addon_courses:
             state.phase = ConversationPhase.SEARCHING_SHOPS
             return IntentResponse(
                 True,
@@ -735,19 +965,25 @@ class ChatEndpoint:
                 state.last_tool_result,
             )
 
-        self._nlu.set_known_items(courses=courses)
-        state.phase = ConversationPhase.SEARCHING_COURSES
+        self._nlu.set_known_items(courses=main_courses) # Only main courses for NLU for now
+        
+        # Generate packages from both main and addon courses
+        generated_packages = generate_packages(main_courses, addon_courses, state.booking_context.duration)
+
+        state.phase = ConversationPhase.SELECTING_PACKAGE
 
         course_lines = []
-        for c in courses:
+        for c in main_courses:
             duration_prices = [f"{d.duration}min ({d.price:,}đ)" for d in c.durations]
             course_lines.append(f"- {c.courseName}: {', '.join(duration_prices)}")
         
         msg = "Here are the available courses:\n" + "\n".join(course_lines) + "\n\nWhich massage course would you like?"
         data = {
-            "options": [
-                c.model_dump() if hasattr(c, "model_dump") else c for c in courses
-            ]
+            "options": [ # Keep options for backward compatibility and general display
+                c.model_dump() if hasattr(c, "model_dump") else c for c in main_courses
+            ],
+            "packages": generated_packages, # Add packages to the data payload for the frontend
+            "confirmed": False, # Add confirmed flag for frontend UI state
         }
         return IntentResponse(True, msg, state, data)
 
@@ -788,21 +1024,17 @@ class ChatEndpoint:
             )
         
         state.phase = ConversationPhase.SEARCHING_SLOTS
-        msg = "Here are the available appointment times:\n" + "\n".join(
-            f"- {s.startTime}-{s.endTime} (capacity: {s.availableCapacity})" for s in slots
-        )
-        return IntentResponse(True, msg, state, state.last_tool_result)
+        available_times = [s.startTime for s in slots]
+        msg = "Here are the available appointment times. Please choose a start time."
+        data = {"available_times": available_times}
+        
+        return IntentResponse(True, msg, state, data)
 
     async def _get_therapists(
         self,
         state: ConversationState,
     ) -> IntentResponse:
-        assert self._slot_manager is not None
-        prompt_response = await self._slot_manager.start(state, "get_therapists")
-        if prompt_response is not None:
-            # prompt_response is a tuple (complete, message_text, data)
-            _, message_text, data = prompt_response
-            return IntentResponse(True, message_text, state, data)
+
 
         assert self._tool_registry is not None
         context = state.booking_context
@@ -824,11 +1056,15 @@ class ChatEndpoint:
         if not result.success:
             return IntentResponse(False, _safe_tool_message(result.message), state, state.last_tool_result)
         therapists = result.data
-        msg = "Available therapists:\n" + "\n".join(
-            f"- {t.name} ({t.gender}) - {'Available' if t.isAvailable else 'Busy'}"
-            for t in therapists
-        )
-        return IntentResponse(True, msg, state, state.last_tool_result)
+        self._nlu.set_known_items(therapists=therapists)
+        state.phase = ConversationPhase.SELECTING_THERAPIST
+        msg = "Choose a therapist (Optional)."
+        data = {
+            "options": [
+                t.model_dump() if hasattr(t, "model_dump") else t for t in therapists
+            ]
+        }
+        return IntentResponse(True, msg, state, data)
 
     async def _check_eligibility(
         self,
@@ -909,13 +1145,44 @@ class ChatEndpoint:
                 state,
             )
         assert self._tool_registry is not None
-        state, ok = self._conversation_manager.transition(state, "faq_search")
-        if not ok:
-            return IntentResponse(False, _safe_tool_message(state.error_message or "Let's start over — how can I help you?"), state)
         tool = self._tool_registry.get("faqSearch")
         result = await tool.execute(FAQSearchRequest(query=message))
-        state.last_tool_result = result.model_dump()
-        return IntentResponse(True, result.message, state, state.last_tool_result)
+        state.last_tool_result = (
+            result.model_dump() if hasattr(result, "model_dump") else None
+        )
+
+        logger.info(f"FAQ query: '{message}'")
+        if result.success and result.data:
+            # Sort by score, highest first
+            sorted_results = sorted(result.data, key=lambda x: x.score, reverse=True)
+            for r in sorted_results:
+                logger.info(f"Retrieved chunk score: {r.score:.4f}, content: \"{r.content[:80]}...\"")
+
+            top_result = sorted_results[0]
+            
+            # This is the fix: reject results below a reasonable similarity threshold.
+            # The score is cosine similarity, so it's in the [0, 1] range.
+            # 0.7 is a common threshold for good semantic similarity.
+            SIMILARITY_THRESHOLD = 0.7
+            if top_result.score >= SIMILARITY_THRESHOLD:
+                response_message = _extract_answer_from_faq(top_result.content)
+                logger.info(f"FAQ answer found with score {top_result.score:.4f}.")
+            else:
+                logger.info(f"Top result score {top_result.score:.4f} is below threshold {SIMILARITY_THRESHOLD}. Rejecting.")
+                response_message = (
+                    "I couldn't find a specific answer to your question. "
+                    "I can help with bookings — what would you like to do?"
+                )
+        else:
+            logger.info("No FAQ results returned from knowledge service.")
+            response_message = (
+                "I couldn't find a specific answer to your question. "
+                "I can help with bookings — what would you like to do?"
+            )
+
+        return IntentResponse(
+            True, response_message, state, state.last_tool_result
+        )
 
 
 
