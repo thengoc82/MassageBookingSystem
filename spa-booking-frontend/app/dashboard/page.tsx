@@ -102,7 +102,7 @@ export default function DashboardPage() {
                       const sel = day === date.getDate() && calMonth === date.getMonth() && calYear === date.getFullYear();
                       return (
                         <button key={i} onClick={() => { if (day) { setDate(new Date(calYear, calMonth, day)); setShowCal(false); } }}
-                          className={`py-1 rounded ${day ? (sel ? 'bg-[#031050] text-white' : day && `${calYear}-${calMonth}-${day}` === todayStr ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-100') : ''}`}
+                          className={`py-1 rounded ${day ? (sel ? 'bg-[#1F2B2A] text-white' : day && `${calYear}-${calMonth}-${day}` === todayStr ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-100') : ''}`}
                           disabled={!day}>{day || ''}</button>
                       );
                     })}
@@ -129,7 +129,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="h-[3px] bg-[#031050] shrink-0" />
+      <div className="h-[3px] bg-[#1F2B2A] shrink-0" />
 
       <div className="flex items-center gap-4 px-4 py-1 bg-white border-b border-gray-200 text-[11px] text-gray-700 shrink-0">
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-100 border border-green-300" /> Available</span>

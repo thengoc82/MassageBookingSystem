@@ -14,7 +14,7 @@ function formatTime(t: string) {
 
 function getStatusColor(status: string) {
   switch (status) {
-    case 'Booked': return 'bg-blue-100 text-blue-800';
+    case 'Booked': return 'bg-celadon-soft text-[#1F4A41]';
     case 'CheckedIn': return 'bg-green-100 text-green-800';
     case 'CheckedOut': return 'bg-gray-100 text-gray-800';
     case 'Cancelled': return 'bg-red-100 text-red-800';
@@ -65,7 +65,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
       <div className="min-h-screen bg-white py-8">
         <div className="container mx-auto px-4 max-w-2xl">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error || 'Booking not found'}</div>
-          <button onClick={() => router.back()} className="mt-4 text-sm text-blue-600 hover:underline">Go back</button>
+          <button onClick={() => router.back()} className="mt-4 text-sm text-celadon-deep hover:underline">Go back</button>
         </div>
       </div>
     );
@@ -79,7 +79,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
     <div className="min-h-screen bg-[#F5F7FA] py-8">
       <div className="container mx-auto px-4 max-w-2xl space-y-4">
 
-        <button onClick={() => router.back()} className="text-sm text-blue-600 hover:underline flex items-center gap-1">
+        <button onClick={() => router.back()} className="text-sm text-celadon-deep hover:underline flex items-center gap-1">
           &larr; Back
         </button>
 

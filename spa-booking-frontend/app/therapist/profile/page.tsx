@@ -61,7 +61,7 @@ function TherapistProfile() {
             <label className="text-sm text-gray-600 block mb-1">New Password (leave blank to keep)</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="border rounded-lg px-3 py-2 text-sm w-full" />
           </div>
-          <button type="submit" className="bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b] w-full">Save</button>
+          <button type="submit" className="bg-[#1F2B2A] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b] w-full">Save</button>
         </form>
       </main>
     </div>

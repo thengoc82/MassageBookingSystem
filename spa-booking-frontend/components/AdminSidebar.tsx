@@ -1,40 +1,18 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { CalendarDays, Columns3, Store, UsersRound, Tags, Clock, UserRound } from 'lucide-react';
+import SidebarNav from './SidebarNav';
 
 const links = [
-  { href: '/admin', label: 'Dashboard' },
-  { href: '/admin/bookings', label: 'Bookings' },
-  { href: '/admin/shops', label: 'Shops' },
-  { href: '/admin/therapists', label: 'Therapists' },
-  { href: '/admin/courses', label: 'Courses' },
-  { href: '/admin/schedules', label: 'Therapist Schedules' },
-
-  { href: '/admin/customers', label: 'Customers' },
+  { href: '/admin', label: 'Schedule', icon: CalendarDays },
+  { href: '/admin/bookings', label: 'Bookings', icon: Columns3 },
+  { href: '/admin/shops', label: 'Shops', icon: Store },
+  { href: '/admin/therapists', label: 'Therapists', icon: UsersRound },
+  { href: '/admin/courses', label: 'Courses', icon: Tags },
+  { href: '/admin/schedules', label: 'Therapist schedules', icon: Clock },
+  { href: '/admin/customers', label: 'Customers', icon: UserRound },
 ];
 
 export default function AdminSidebar() {
-  const pathname = usePathname();
-
-  return (
-    <aside className="w-60 shrink-0 bg-[#031050] text-white min-h-[calc(100vh-65px)] p-4">
-      <nav className="flex flex-col gap-1">
-        {links.map(link => {
-          const active = pathname === link.href;
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`px-3 py-2 rounded-lg text-sm transition ${
-                active ? 'bg-white/20 font-semibold' : 'hover:bg-white/10'
-              }`}
-            >
-              {link.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
-  );
+  return <SidebarNav links={links} label="Admin" />;
 }

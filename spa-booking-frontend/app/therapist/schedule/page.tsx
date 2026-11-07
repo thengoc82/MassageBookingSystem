@@ -36,7 +36,7 @@ function TherapistSchedule() {
             <label className="text-sm text-gray-600 block mb-1">To</label>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="border rounded-lg px-3 py-2 text-sm w-full" />
           </div>
-          <button onClick={load} className="bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">View Schedule</button>
+          <button onClick={load} className="bg-[#1F2B2A] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">View Schedule</button>
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded mb-4 text-sm">{error}</div>}

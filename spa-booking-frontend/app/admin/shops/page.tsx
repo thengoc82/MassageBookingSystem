@@ -42,7 +42,7 @@ function AdminShops() {
             <input type="time" value={form.openTime} onChange={e => setForm({ ...form, openTime: e.target.value })} className="border rounded-lg px-3 py-2 text-sm flex-1" />
             <input type="time" value={form.closeTime} onChange={e => setForm({ ...form, closeTime: e.target.value })} className="border rounded-lg px-3 py-2 text-sm flex-1" />
           </div>
-          <button type="submit" className="md:col-span-2 bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">Create Shop</button>
+          <button type="submit" className="md:col-span-2 bg-[#1F2B2A] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">Create Shop</button>
         </form>
 
         {loading ? <div className="text-gray-400">Loading...</div> : (

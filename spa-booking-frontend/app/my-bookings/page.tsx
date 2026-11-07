@@ -53,7 +53,7 @@ export default function MyBookingsPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Booked':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-celadon-soft text-[#1F4A41]';
       case 'CheckedIn':
         return 'bg-green-100 text-green-800';
       case 'CheckedOut':
@@ -83,7 +83,7 @@ export default function MyBookingsPage() {
             <button
               onClick={() => handleSearch()}
               disabled={!phoneNumber || loading}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+              className="bg-celadon text-white px-6 py-3 rounded-lg hover:bg-celadon-deep disabled:bg-gray-300"
             >
               {loading ? 'Searching...' : 'Search'}
             </button>

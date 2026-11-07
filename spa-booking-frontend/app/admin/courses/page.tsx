@@ -127,7 +127,7 @@ function AdminCourses() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700">Durations & Prices</span>
-              <button type="button" onClick={addDurationRow} className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">+ Add</button>
+              <button type="button" onClick={addDurationRow} className="text-xs bg-celadon text-white px-3 py-1 rounded hover:bg-celadon-deep">+ Add</button>
             </div>
             {form.durations.map((d, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -141,7 +141,7 @@ function AdminCourses() {
             ))}
           </div>
 
-          <button type="submit" className="bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b] w-full">
+          <button type="submit" className="bg-[#1F2B2A] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b] w-full">
             {editingId ? 'Update Course' : 'Create Course'}
           </button>
         </form>

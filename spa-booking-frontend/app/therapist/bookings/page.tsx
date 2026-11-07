@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 
 function getStatusColor(status: string) {
   switch (status) {
-    case 'Booked': return 'bg-blue-100 text-blue-800';
+    case 'Booked': return 'bg-celadon-soft text-[#1F4A41]';
     case 'CheckedIn': return 'bg-green-100 text-green-800';
     case 'CheckedOut': return 'bg-gray-100 text-gray-800';
     case 'Cancelled': return 'bg-red-100 text-red-800';
@@ -59,10 +59,10 @@ function TherapistBookings() {
                 <span className={`px-3 py-1 rounded-full text-xs mr-3 ${getStatusColor(b.status)}`}>{b.status}</span>
                 <div className="flex gap-2">
                   {b.status === 'Booked' && (
-                    <button onClick={() => handleAction(b.bookingId, 'checkin')} className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700">Start</button>
+                    <button onClick={() => handleAction(b.bookingId, 'checkin')} className="px-3 py-1.5 text-xs bg-celadon text-white rounded hover:bg-celadon-deep">Start</button>
                   )}
                   {b.status === 'CheckedIn' && (
-                    <button onClick={() => handleAction(b.bookingId, 'checkout')} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Complete</button>
+                    <button onClick={() => handleAction(b.bookingId, 'checkout')} className="px-3 py-1.5 text-xs bg-celadon text-white rounded hover:bg-celadon-deep">Complete</button>
                   )}
                 </div>
               </div>
