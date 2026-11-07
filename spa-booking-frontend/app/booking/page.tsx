@@ -251,7 +251,7 @@ export default function BookingConfirmPage() {
 
   if (bookingCode) {
     return (
-      <div className="min-h-screen bg-[#031050] py-8">
+      <div className="min-h-screen bg-[#1F2B2A] py-8">
         <div className="container mx-auto px-4 max-w-2xl">
           <div className="bg-white rounded-xl shadow-lg p-8 text-center">
             <div className="text-6xl mb-4 text-green-500">✓</div>
@@ -299,7 +299,7 @@ export default function BookingConfirmPage() {
                 Book Another
               </button>
               <button onClick={() => router.push('/my-bookings')}
-                className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 text-sm font-medium">
+                className="flex-1 bg-celadon text-white px-4 py-3 rounded-lg hover:bg-celadon-deep text-sm font-medium">
                 My Bookings
               </button>
             </div>
@@ -325,7 +325,7 @@ export default function BookingConfirmPage() {
               <div className="text-center py-6">
                 <p className="text-black mb-4">No nearby slots available.</p>
                 <button onClick={() => { localStorage.removeItem('pending_booking'); router.push('/'); }}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
+                  className="bg-celadon text-white px-6 py-3 rounded-lg hover:bg-celadon-deep">
                   Try a Different Date
                 </button>
               </div>
@@ -335,7 +335,7 @@ export default function BookingConfirmPage() {
                   {nearest.map(slot => (
                     <button key={slot.startTime}
                       onClick={() => handleReselectSlot(slot.startTime)}
-                      className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-blue-50 transition text-left">
+                      className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-celadon-soft transition text-left">
                       <div>
                         <span className="font-mono font-semibold text-lg text-black">{slot.startTime}</span>
                         <span className="text-black mx-2">-</span>
@@ -377,7 +377,7 @@ export default function BookingConfirmPage() {
           <div className="flex flex-col items-center">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition ${
               i === currentStep
-                ? 'bg-white text-[#031050]'
+                ? 'bg-white text-[#1F2B2A]'
                 : i < currentStep
                   ? 'bg-green-400 text-white'
                   : 'bg-white/20 text-white/60'
@@ -424,7 +424,7 @@ export default function BookingConfirmPage() {
       <h2 className="text-lg font-semibold text-white mb-6">Choose Date & Time</h2>
       <div className="bg-white rounded-xl p-6 max-w-sm mx-auto">
         <div className="text-base text-black font-medium">{bookingDate}</div>
-        <div className="text-3xl font-bold text-[#031050] mt-2">{formatTime(bookingData.startTime)}</div>
+        <div className="text-3xl font-bold text-[#1F2B2A] mt-2">{formatTime(bookingData.startTime)}</div>
         <div className="text-sm text-black mt-1">
           {bookingData.duration} min &middot; {shopName}
         </div>
@@ -444,7 +444,7 @@ export default function BookingConfirmPage() {
             placeholder="090 1234 567"
             className="w-full p-2.5 border border-gray-300 rounded-lg text-sm text-black mb-3" />
           <button onClick={handleFindCustomer}
-            className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+            className="w-full py-2.5 bg-celadon text-white text-sm font-medium rounded-lg hover:bg-celadon-deep">
             Find My Booking / Continue
           </button>
         </div>
@@ -484,7 +484,7 @@ export default function BookingConfirmPage() {
                 {['Male', 'Female', 'Other'].map(g => (
                   <label key={g} className="flex items-center gap-1.5 cursor-pointer">
                     <input type="radio" name="customerGender" checked={customerGender === g}
-                      onChange={() => setCustomerGender(g)} className="accent-blue-600" />
+                      onChange={() => setCustomerGender(g)} className="accent-celadon" />
                     <span className="text-sm text-black">{g}</span>
                   </label>
                 ))}
@@ -523,7 +523,7 @@ export default function BookingConfirmPage() {
             {addonOptions.map(opt => (
               <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" checked={selectedAddons.includes(opt)}
-                  onChange={() => toggleAddon(opt)} className="accent-blue-600" />
+                  onChange={() => toggleAddon(opt)} className="accent-celadon" />
                 <span className="text-sm text-black">{opt}</span>
               </label>
             ))}
@@ -536,7 +536,7 @@ export default function BookingConfirmPage() {
             {extraOptions.map(opt => (
               <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" checked={optionalExtras.includes(opt)}
-                  onChange={() => toggleExtra(opt)} className="accent-blue-600" />
+                  onChange={() => toggleExtra(opt)} className="accent-celadon" />
                 <span className="text-sm text-black">{opt}</span>
               </label>
             ))}
@@ -587,7 +587,7 @@ export default function BookingConfirmPage() {
             ].map(opt => (
               <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer">
                 <input type="radio" name="therapistPref" checked={therapistPref === opt.value}
-                  onChange={() => setTherapistPref(opt.value)} className="accent-blue-600" />
+                  onChange={() => setTherapistPref(opt.value)} className="accent-celadon" />
                 <span className="text-sm text-black">{opt.label}</span>
               </label>
             ))}
@@ -620,7 +620,7 @@ export default function BookingConfirmPage() {
             ].map(opt => (
               <label key={opt} className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" name="chatPref" checked={chatPref === opt}
-                  onChange={() => setChatPref(opt)} className="accent-blue-600" />
+                  onChange={() => setChatPref(opt)} className="accent-celadon" />
                 <span className="text-sm text-black">{opt}</span>
               </label>
             ))}
@@ -676,7 +676,7 @@ export default function BookingConfirmPage() {
       <div className="max-w-md mx-auto bg-white rounded-xl p-6 space-y-4">
         <div className="text-center pb-3 border-b border-gray-200">
           <div className="text-base font-semibold text-black">{bookingDate}</div>
-          <div className="text-2xl font-bold text-[#031050]">{formatTime(bookingData.startTime)}</div>
+          <div className="text-2xl font-bold text-[#1F2B2A]">{formatTime(bookingData.startTime)}</div>
           <div className="text-sm text-black mt-1">{shopName}</div>
         </div>
 
@@ -754,7 +754,7 @@ export default function BookingConfirmPage() {
 
         <button onClick={handleConfirm}
           disabled={!guestPhone || isConfirming || totalMinutes === 0}
-          className="w-full py-3 bg-green-600 text-white text-base font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-300 transition">
+          className="w-full py-3 bg-celadon text-white text-base font-semibold rounded-lg hover:bg-celadon-deep disabled:bg-gray-300 transition">
           {isConfirming ? 'Confirming...' : 'Confirm Booking'}
         </button>
       </div>
@@ -762,7 +762,7 @@ export default function BookingConfirmPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#031050] py-8">
+    <div className="min-h-screen bg-[#1F2B2A] py-8">
       <div className="container mx-auto px-4 max-w-2xl">
         {renderProgress()}
         {renderStep()}

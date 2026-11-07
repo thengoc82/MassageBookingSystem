@@ -23,9 +23,9 @@ export default function ChatWidget() {
           type="button"
           onClick={() => setIsOpen(true)}
           aria-label="Open chat"
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-celadon text-white shadow-lg transition-transform hover:scale-105 hover:bg-celadon-deep focus-visible:outline-2 focus-visible:outline-offset-2"
         >
-          <MessageCircle size={24} />
+          <MessageCircle size={24} aria-hidden="true" />
         </button>
       )}
     </div>

@@ -67,7 +67,7 @@ export default function ShopsPage() {
               </div>
               <a
                 href="/booking"
-                className="mt-4 block text-center bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+                className="mt-4 block text-center bg-celadon text-white py-2 rounded-lg hover:bg-celadon-deep"
               >
                 Book Now
               </a>

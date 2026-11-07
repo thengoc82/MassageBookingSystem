@@ -180,11 +180,11 @@ function ReservationForm() {
           <h2 className="text-lg font-bold text-gray-900">Booking Confirmed</h2>
           <div className="bg-gray-50 rounded p-4">
             <div className="text-[11px] text-gray-500 uppercase tracking-wider">Code</div>
-            <div className="text-lg font-mono font-bold text-[#031050]">{result.code}</div>
+            <div className="text-lg font-mono font-bold text-[#1F2B2A]">{result.code}</div>
           </div>
           {result.name && <div className="text-sm text-gray-600">Therapist: <span className="font-semibold">{result.name}</span></div>}
           <button onClick={() => router.push('/dashboard')}
-            className="w-full py-2 bg-[#031050] text-white text-sm font-semibold rounded hover:bg-[#1a2a6b]">Back to Booking</button>
+            className="w-full py-2 bg-[#1F2B2A] text-white text-sm font-semibold rounded hover:bg-[#1a2a6b]">Back to Booking</button>
         </div>
       </div>
     );
@@ -223,9 +223,9 @@ function ReservationForm() {
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-3 mb-4">
             <button onClick={() => setCustomerType('member')}
-              className={`px-4 py-1.5 rounded text-xs font-medium transition ${customerType === 'member' ? 'bg-[#031050] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Member</button>
+              className={`px-4 py-1.5 rounded text-xs font-medium transition ${customerType === 'member' ? 'bg-[#1F2B2A] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Member</button>
             <button onClick={() => setCustomerType('guest')}
-              className={`px-4 py-1.5 rounded text-xs font-medium transition ${customerType === 'guest' ? 'bg-[#031050] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Guest</button>
+              className={`px-4 py-1.5 rounded text-xs font-medium transition ${customerType === 'guest' ? 'bg-[#1F2B2A] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Guest</button>
           </div>
           <div className="flex items-start gap-6 flex-wrap">
             {customerType === 'member' ? (
@@ -234,7 +234,7 @@ function ReservationForm() {
                   <label className="text-xs font-medium text-gray-700 mb-1 block">Membership Number</label>
                   <div className="flex gap-2">
                     <input placeholder="Enter membership no." className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-900" />
-                    <button className="px-3 py-1.5 bg-[#031050] text-white text-xs rounded hover:bg-[#1a2a6b] shrink-0">Search</button>
+                    <button className="px-3 py-1.5 bg-[#1F2B2A] text-white text-xs rounded hover:bg-[#1a2a6b] shrink-0">Search</button>
                   </div>
                 </div>
                 <div className="min-w-[200px] flex-1">
@@ -263,7 +263,7 @@ function ReservationForm() {
 
           {/* FBM main course */}
           {fbmCourse && (
-            <div className="border border-[#031050] rounded-lg p-3 mb-4 bg-blue-50">
+            <div className="border border-[#1F2B2A] rounded-lg p-3 mb-4 bg-celadon-soft">
               <div className="text-xs font-semibold text-gray-900">{fbmCourse.courseName} <span className="font-normal text-gray-500">(main)</span></div>
               <div className="flex flex-wrap gap-1 mt-1">
                 {fbmCourse.durations.map(d => {
@@ -272,8 +272,8 @@ function ReservationForm() {
                     <button key={d.duration} onClick={() => setFbmDuration(d.duration)}
                       className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
                         sel
-                          ? 'bg-[#031050] text-white border-[#031050]'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
+                          ? 'bg-[#1F2B2A] text-white border-[#1F2B2A]'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-[#1F2B2A]'
                       }`}>
                       {d.duration} min
                     </button>
@@ -299,10 +299,10 @@ function ReservationForm() {
                         disabled={over}
                         className={`px-3 py-1 rounded text-[10px] font-semibold border transition ${
                           sel
-                            ? 'bg-[#031050] text-white border-[#031050]'
+                            ? 'bg-[#1F2B2A] text-white border-[#1F2B2A]'
                             : over
                               ? 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'
-                              : 'bg-white text-gray-700 border-gray-200 hover:border-[#031050]'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-[#1F2B2A]'
                         }`}>
                         {d.duration > 0 ? `${d.duration} min` : 'Add'} · {formatPrice(d.price)}
                       </button>
@@ -330,7 +330,7 @@ function ReservationForm() {
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               {OPTIONS.map(o => (
                 <label key={o} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={options.includes(o)} onChange={() => toggleOption(o)} className="accent-[#031050] w-3 h-3" />
+                  <input type="checkbox" checked={options.includes(o)} onChange={() => toggleOption(o)} className="accent-[#1F2B2A] w-3 h-3" />
                   <span className="text-[11px] text-gray-700">{o}</span>
                 </label>
               ))}
@@ -341,7 +341,7 @@ function ReservationForm() {
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               {BODY_PARTS.map(p => (
                 <label key={p} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={tiredParts.includes(p)} onChange={() => toggleTired(p)} className="accent-[#031050] w-3 h-3" />
+                  <input type="checkbox" checked={tiredParts.includes(p)} onChange={() => toggleTired(p)} className="accent-[#1F2B2A] w-3 h-3" />
                   <span className="text-[11px] text-gray-700">{p}</span>
                 </label>
               ))}
@@ -352,7 +352,7 @@ function ReservationForm() {
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               {BODY_PARTS.map(p => (
                 <label key={p} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={avoidAreas.includes(p)} onChange={() => toggleAvoid(p)} className="accent-[#031050] w-3 h-3" />
+                  <input type="checkbox" checked={avoidAreas.includes(p)} onChange={() => toggleAvoid(p)} className="accent-[#1F2B2A] w-3 h-3" />
                   <span className="text-[11px] text-gray-700">{p}</span>
                 </label>
               ))}
@@ -382,7 +382,7 @@ function ReservationForm() {
             <div className="space-y-1.5">
               {['No Preference', 'Quiet Session', 'Ask Every Time'].map(p => (
                 <label key={p} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="radio" name="convPref" checked={conversationPref === p} onChange={() => setConversationPref(p)} className="accent-[#031050] w-3 h-3" />
+                  <input type="radio" name="convPref" checked={conversationPref === p} onChange={() => setConversationPref(p)} className="accent-[#1F2B2A] w-3 h-3" />
                   <span className="text-[11px] text-gray-700">{p}</span>
                 </label>
               ))}
@@ -394,7 +394,7 @@ function ReservationForm() {
               {['Stronger', 'Slightly Stronger', 'Normal', 'Slightly Weaker', 'Weaker'].map(s => (
                 <button key={s} onClick={() => setStrength(s)}
                   className={`px-2 py-0.5 rounded text-[10px] font-medium border transition ${
-                    strength === s ? 'bg-[#031050] text-white border-[#031050]' : 'bg-white text-gray-700 border-gray-200'
+                    strength === s ? 'bg-[#1F2B2A] text-white border-[#1F2B2A]' : 'bg-white text-gray-700 border-gray-200'
                   }`}>{s}</button>
               ))}
             </div>
@@ -410,7 +410,7 @@ function ReservationForm() {
         <span className="text-xs text-gray-600 font-mono">#RSV-{initDate?.replace(/-/g, '') || '00000000'}-001</span>
         <div className="flex-1" />
         <button onClick={handleSubmit} disabled={submitting || !phoneNo || !fbmCourse || remaining !== 0}
-          className="px-6 py-1.5 bg-[#031050] text-white text-xs font-semibold rounded hover:bg-[#1a2a6b] shadow-sm disabled:bg-gray-300 disabled:cursor-not-allowed">
+          className="px-6 py-1.5 bg-[#1F2B2A] text-white text-xs font-semibold rounded hover:bg-[#1a2a6b] shadow-sm disabled:bg-gray-300 disabled:cursor-not-allowed">
           {submitting ? 'Booking...' : remaining !== 0 ? `Fill remaining ${remaining} min` : 'Register Reservation'}
         </button>
       </div>

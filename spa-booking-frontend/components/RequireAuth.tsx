@@ -51,7 +51,7 @@ export default function RequireAuth({ allowedRoles, children }: { allowedRoles: 
         <p className="text-gray-600 mt-2">You do not have permission to access this page.</p>
         <button
           onClick={() => router.push(user?.role === 'admin' ? '/admin' : '/therapist')}
-          className="mt-6 bg-[#031050] text-white px-5 py-2.5 rounded-lg hover:bg-[#1a2a6b]"
+          className="mt-6 bg-[#1F2B2A] text-white px-5 py-2.5 rounded-lg hover:bg-[#1a2a6b]"
         >
           Back to my dashboard
         </button>

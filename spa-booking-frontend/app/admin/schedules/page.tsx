@@ -68,7 +68,7 @@ function AdminSchedules() {
             <label className="text-sm text-gray-600 block mb-1">To</label>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="border rounded-lg px-3 py-2 text-sm w-full" />
           </div>
-          <button onClick={loadSchedule} className="md:col-span-4 bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">View Schedule</button>
+          <button onClick={loadSchedule} className="md:col-span-4 bg-[#1F2B2A] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">View Schedule</button>
         </div>
 
         {loaded && (

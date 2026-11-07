@@ -37,7 +37,7 @@ function TherapistDashboard() {
                 <div className="text-xs text-gray-400">{b.status}</div>
                 <button
                   onClick={() => router.push(`/bookings/${b.bookingId}`)}
-                  className="mt-2 text-sm text-blue-600 hover:underline"
+                  className="mt-2 text-sm text-celadon-deep hover:underline"
                 >
                   View details
                 </button>

@@ -61,7 +61,7 @@ function AdminTherapists() {
           <input placeholder="Phone Number" value={form.phoneNumber} onChange={e => setForm({ ...form, phoneNumber: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" />
           <input placeholder="Username (login)" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" required />
           <input placeholder="Password" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="border rounded-lg px-3 py-2 text-sm" required />
-          <button type="submit" className="md:col-span-2 bg-[#031050] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">Create Therapist</button>
+          <button type="submit" className="md:col-span-2 bg-[#1F2B2A] text-white py-2.5 rounded-lg hover:bg-[#1a2a6b]">Create Therapist</button>
         </form>
 
         {loading ? <div className="text-gray-400">Loading...</div> : (

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Check } from "lucide-react";
 
 type Props = {
   onConfirm: () => void;
@@ -22,29 +22,26 @@ export default function ConfirmationButtons({
   disabled,
 }: Props) {
   return (
-    <div className="flex justify-start pl-10">
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={disabled}
-          aria-label="Confirm"
-          className="flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 disabled:cursor-not-allowed disabled:bg-gray-300"
-        >
-          <Check size={14} />
-          Confirm
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={disabled}
-          aria-label="Cancel"
-          className="flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:cursor-not-allowed disabled:bg-gray-300"
-        >
-          <X size={14} />
-          Cancel
-        </button>
-      </div>
+    <div className="flex gap-2 pl-10">
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={disabled}
+        aria-label="Confirm"
+        className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-celadon px-4 text-sm font-semibold text-white transition-colors hover:bg-celadon-deep disabled:cursor-not-allowed disabled:bg-[#B8C4C0]"
+      >
+        <Check size={16} aria-hidden="true" />
+        Confirm booking
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={disabled}
+        aria-label="Cancel"
+        className="flex h-11 flex-1 items-center justify-center rounded-[10px] border border-celadon px-4 text-sm font-semibold text-celadon-deep transition-colors hover:bg-celadon-soft disabled:cursor-not-allowed disabled:border-[#B8C4C0] disabled:text-[#8A9A96] disabled:hover:bg-transparent"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

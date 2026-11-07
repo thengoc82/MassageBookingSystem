@@ -1,23 +1,41 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F5F7FA;
-  --foreground: #171717;
-  --primary: #031050;
-  --primary-light: #1a2a6b;
-  --accent-available: #FFFFFF;
-  --accent-unavailable: #FFD700;
-  --border-color: #E5E7EB;
-  --card-bg: #FFFFFF;
-  --text-muted: #6B7280;
-  --danger: #EF4444;
-  --success: #10B981;
+  --background: #EDF1EF;
+  --foreground: #1F2B2A;
+  --primary: #1F2B2A;
+  --primary-light: #2B3A38;
+  --accent-available: #FBFCFB;
+  --accent-unavailable: #DE9A2E;
+  --border-color: #D5DDDA;
+  --card-bg: #FBFCFB;
+  --text-muted: #4F615E;
+  --danger: #B42318;
+  --success: #3E7F72;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
+
+  /* Palette: basalt, celadon, mist, linen, hot-stone amber */
+  --color-basalt: #1F2B2A;
+  --color-basalt-2: #2B3A38;
+  --color-celadon: #3E7F72;
+  --color-celadon-deep: #2C6A5D;
+  --color-celadon-soft: #D9E9E4;
+  --color-mist: #EDF1EF;
+  --color-linen: #FBFCFB;
+  --color-line: #D5DDDA;
+  --color-ink-soft: #4F615E;
+  --color-amber: #DE9A2E;
+
+  /* Course colours on the schedule board */
+  --color-course-slate: #4A6585;
+  --color-course-plum: #7A4E6D;
+
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
 }
 
 * {
@@ -27,27 +45,38 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+h1, h2, h3 {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
-  border-radius: 3px;
+  background: #BBC8C4;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+  background: #98ABA6;
 }
 
-input:focus, select:focus, textarea:focus, button:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid #3E7F72;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
