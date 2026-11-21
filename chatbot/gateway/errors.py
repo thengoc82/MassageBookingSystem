@@ -168,6 +168,8 @@ def map_flask_error(status_code: int, error_code: str, message: str) -> ChatbotE
         "DUPLICATE_RESOURCE": ConflictError,
         "BOOKING_CONFLICT": ConflictError,
         "TIME_SLOT_UNAVAILABLE": TimeSlotUnavailableError,
+        "SLOT_UNAVAILABLE": TimeSlotUnavailableError,
+        "INSUFFICIENT_THERAPISTS": TimeSlotUnavailableError,
         "THERAPIST_UNAVAILABLE": TherapistUnavailableError,
         "BUSINESS_RULE_VIOLATION": BusinessRuleError,
         "INVALID_BOOKING_DATE": InvalidBookingDateError,

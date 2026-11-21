@@ -131,6 +131,23 @@ async def test_search_available_slots_with_therapists() -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_available_slots_sends_start_time_in_api_format() -> None:
+    client = make_client_mock({"success": True, "data": [], "message": "Success"})
+    tool = SearchAvailableSlotsTool(client)
+    request = SearchAvailableSlotsRequest(
+        shopId=1,
+        date=date(2026, 11, 22),
+        duration=15,
+        numberOfPeople=2,
+        startTime=time(17, 0),
+    )
+
+    await tool.execute(request)
+
+    assert client.get.await_args.kwargs["params"]["startTime"] == "17:00"
+
+
+@pytest.mark.asyncio
 async def test_get_therapists_tool() -> None:
     client = make_client_mock({
         "success": True,
@@ -151,7 +168,7 @@ async def test_get_therapists_tool() -> None:
     assert result.data[0].name == "Anna"
     client.get.assert_called_once_with(
         "/shops/1/available-therapists",
-        params={"date": "2026-07-15", "startTime": "09:00:00", "duration": 60},
+        params={"date": "2026-07-15", "startTime": "09:00", "duration": 60},
     )
 
 

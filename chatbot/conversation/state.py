@@ -13,6 +13,7 @@ class ConversationPhase(str, Enum):
     SEARCHING_SHOPS = "searching_shops"
     SEARCHING_COURSES = "searching_courses"
     SEARCHING_SLOTS = "searching_slots"
+    COLLECTING_PHONE = "collecting_phone"
     SELECTING_THERAPIST = "selecting_therapist"
     CHECKING_ELIGIBILITY = "checking_eligibility"
     CONFIRMING_ACTION = "confirming_action"  # Generic for any write action
@@ -56,6 +57,8 @@ class ConversationState(BaseModel):
     booking_context: BookingContext = Field(default_factory=BookingContext)
     pending_action: PendingAction | None = None  # Updated to store structured PendingAction
     last_tool_result: dict | None = None
+    offered_slot_time: str | None = None
+    suggested_slot_times: list[str] = Field(default_factory=list)
     error_message: str | None = None
     step_count: int = 0
 
@@ -89,10 +92,48 @@ STATE_TRANSITIONS: list[StateTransition] = [
         required_context=["course_id", "date", "duration", "number_of_people"],
     ),
     StateTransition(
+        from_phase=ConversationPhase.SEARCHING_COURSES,
+        action="choose_course",
+        to_phase=ConversationPhase.COLLECTING_INFO,
+        required_context=["course_id"],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.COLLECTING_INFO,
+        action="search_slots",
+        to_phase=ConversationPhase.SEARCHING_SLOTS,
+        required_context=["course_id", "date", "start_time", "duration", "number_of_people"],
+    ),
+    StateTransition(
         from_phase=ConversationPhase.SEARCHING_SLOTS,
         action="select_slot",
         to_phase=ConversationPhase.SELECTING_THERAPIST,
         required_context=["start_time"],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.SEARCHING_SLOTS,
+        action="confirm_slot",
+        to_phase=ConversationPhase.COLLECTING_PHONE,
+        required_context=["start_time"],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.SEARCHING_SLOTS,
+        action="change_booking_date",
+        to_phase=ConversationPhase.COLLECTING_INFO,
+        required_context=["course_id"],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.COLLECTING_PHONE,
+        action="prepare_booking",
+        to_phase=ConversationPhase.CONFIRMING_ACTION,
+        required_context=[
+            "shop_id", "course_id", "date", "start_time", "duration",
+            "number_of_people", "phone_number",
+        ],
+    ),
+    StateTransition(
+        from_phase=ConversationPhase.CONFIRMING_ACTION,
+        action="booking_created",
+        to_phase=ConversationPhase.BOOKING_COMPLETE,
     ),
     StateTransition(
         from_phase=ConversationPhase.SELECTING_THERAPIST,
@@ -189,6 +230,8 @@ class ConversationManager:
         state.booking_context = BookingContext()
         state.pending_action = None
         state.last_tool_result = None
+        state.offered_slot_time = None
+        state.suggested_slot_times = []
         state.error_message = None
         state.step_count = 0
         return state

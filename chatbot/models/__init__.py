@@ -30,13 +30,19 @@ class SearchCoursesRequest(BaseModel):
     type: str | None = Field(default=None, pattern="^(main|addon)$")
 
 
+class CourseDuration(BaseModel):
+    duration: int
+    price: int
+
+
 class CourseInfo(BaseModel):
     courseId: int
     courseName: str
-    duration: int
-    price: int
+    durations: list[CourseDuration] = Field(default_factory=list)
+    duration: int | None = None
+    price: int | None = None
     courseType: str
-    status: str
+    status: str | None = None
 
 
 class SearchCoursesResponse(BaseModel):
@@ -197,6 +203,7 @@ class CreateBookingRequest(BaseModel):
     phoneNumber: str
     bookingDate: date
     startTime: time
+    duration: int = Field(ge=1)
     numberOfPeople: int
     services: list[CreateBookingService]
     addOns: list[CreateBookingAddOn] | None = None

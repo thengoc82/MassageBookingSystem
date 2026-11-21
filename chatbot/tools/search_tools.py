@@ -73,7 +73,7 @@ class SearchAvailableSlotsTool(BaseTool[SearchAvailableSlotsRequest, SearchAvail
             "numberOfPeople": request.numberOfPeople,
         }
         if request.startTime:
-            params["startTime"] = request.startTime.isoformat()
+            params["startTime"] = request.startTime.strftime("%H:%M")
         if request.courseIds:
             params["courseIds"] = request.courseIds
         if request.gender:
@@ -95,7 +95,7 @@ class GetTherapistsTool(BaseTool[GetTherapistsRequest, GetTherapistsResponse]):
         path = f"/shops/{request.shopId}/available-therapists"
         params = {
             "date": request.date.isoformat(),
-            "startTime": request.startTime.isoformat(),
+            "startTime": request.startTime.strftime("%H:%M"),
             "duration": request.duration,
         }
         if request.gender:

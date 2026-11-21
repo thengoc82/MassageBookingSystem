@@ -21,8 +21,16 @@ class CreateBookingTool(BaseTool[CreateBookingRequest, CreateBookingResponse]):
         self._client = http_client
 
     async def execute(self, request: CreateBookingRequest) -> CreateBookingResponse:
-        response = await self._client.post("/bookings", json=request.model_dump(mode="json"))
-        return CreateBookingResponse(**response)
+        payload = request.model_dump(mode="json", exclude_none=True)
+        payload["startTime"] = request.startTime.strftime("%H:%M")
+        response = await self._client.post("/bookings", json=payload)
+        data = response.get("data") or response
+        return CreateBookingResponse(
+            success=response["success"],
+            bookingId=data.get("bookingId"),
+            bookingCode=data.get("bookingCode"),
+            message=response.get("message"),
+        )
 
 
 class ModifyBookingTool(BaseTool[ModifyBookingRequest, ModifyBookingResponse]):

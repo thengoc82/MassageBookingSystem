@@ -1,4 +1,6 @@
+import re
 from dataclasses import dataclass
+from datetime import date, time
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -15,9 +17,11 @@ from chatbot.conversation.state import (
     ConversationManager,
     ConversationPhase,
     ConversationState,
+    PendingAction,
 )
 from chatbot.conversation.tool_orchestrator import ToolOrchestrator
 from chatbot.gateway.client import HTTPClient, create_client
+from chatbot.gateway.errors import ChatbotError, ChatbotErrorCode
 from chatbot.knowledge import (
     KnowledgeService,
     PgVectorStore,
@@ -25,14 +29,19 @@ from chatbot.knowledge import (
 )
 from chatbot.models import (
     CheckEligibilityRequest,
+    CourseInfo,
+    CreateBookingRequest,
     FAQSearchRequest,
     GetTherapistsRequest,
     LookupBookingRequest,
     SearchAvailableSlotsRequest,
+    SearchAvailableSlotsResponse,
     SearchCoursesRequest,
+    SearchCoursesResponse,
     SearchShopsRequest,
     SearchShopsResponse,
     ShopInfo,
+    SlotInfo,
 )
 from chatbot.models.conversation import Conversation
 from chatbot.models.intent import Intent, IntentType
@@ -136,37 +145,146 @@ def _is_booking_intent(message: str) -> bool:
 
 
 def _slots_from_message(message: str) -> dict:
-    """Extract simple slots (date, time, people) from message text."""
-    import re
+    """Extract booking date, start time, duration, and party size."""
+    from datetime import date as date_type
+    from datetime import timedelta
     slots: dict = {}
     msg = message.lower()
     if "tomorrow" in msg:
-        slots["date"] = "tomorrow"
-    if "today" in msg:
-        slots["date"] = "today"
+        slots["date"] = (date_type.today() + timedelta(days=1)).isoformat()
+    elif "today" in msg:
+        slots["date"] = date_type.today().isoformat()
+    iso_date = re.search(r"\b\d{4}-\d{2}-\d{2}\b", msg)
+    if iso_date:
+        try:
+            date_type.fromisoformat(iso_date.group(0))
+            slots["date"] = iso_date.group(0)
+        except ValueError:
+            pass
     m = re.search(r"(\d+)\s*(?:people|person|ppl|guests?)", msg)
     if m:
         slots["number_of_people"] = int(m.group(1))
-    m = re.search(r"at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", msg)
+    m = re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", msg)
+    if not m:
+        m = re.fullmatch(r"\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*", msg)
+    if not m:
+        m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", msg)
     if m:
         hour = int(m.group(1))
         minute = int(m.group(2) or 0)
-        ampm = m.group(3)
-        if ampm == "pm" and hour < 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-        slots["start_time"] = f"{hour:02d}:{minute:02d}"
-    m = re.search(r"(\d+)\s*(?:min|minute|minutes|hour|hr|hours)", msg)
+        ampm = m.group(3) if m.lastindex and m.lastindex >= 3 else None
+        if minute < 60 and (1 <= hour <= 12 if ampm else hour <= 23):
+            if ampm == "pm" and hour < 12:
+                hour += 12
+            if ampm == "am" and hour == 12:
+                hour = 0
+            slots["start_time"] = f"{hour:02d}:{minute:02d}"
+    m = re.search(r"\b(\d+)\s*(min(?:ute)?s?|m|hours?|hrs?)\b", msg)
     if m:
         n = int(m.group(1))
-        slots["duration"] = n * 60 if "hour" in m.group(0) or "hr" in m.group(0) else n
+        if n > 0:
+            unit = m.group(2)
+            slots["duration"] = n * 60 if unit.startswith(("hour", "hr")) else n
     return slots
 
 
 def _shop_label(shop: Any) -> str:
     """Format a shop for display."""
     return f"{shop.shopName} (id: {shop.shopId}, {shop.address})"
+
+
+def _shop_selection(message: str, shops: list[ShopInfo]) -> tuple[ShopInfo | None, str]:
+    """Resolve a reply against the shops actually shown to this session."""
+    words = re.findall(r"\w+", message.casefold())
+    reply = " ".join(words)
+    if not reply or not shops:
+        return None, "unrelated"
+
+    # Explicit IDs refer to shop IDs; ordinals refer to the displayed order.
+    id_match = re.fullmatch(r"(?:shop|shop id|id) (\d+)", reply)
+    if id_match or re.fullmatch(r"\d+", reply):
+        shop_id = int(id_match.group(1) if id_match else reply)
+        matches = [shop for shop in shops if shop.shopId == shop_id]
+        return (matches[0], "selected") if len(matches) == 1 else (None, "invalid")
+
+    ordinal = re.fullmatch(
+        r"(?:the )?(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)(?: one| shop)?",
+        reply,
+    )
+    if ordinal:
+        position = {
+            "first": 1, "1st": 1, "second": 2, "2nd": 2,
+            "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+            "fifth": 5, "5th": 5,
+        }[ordinal.group(1)]
+        return (shops[position - 1], "selected") if position <= len(shops) else (None, "invalid")
+
+    # Match whole name prefixes so a short place name remains useful, while a
+    # longer explicit name wins over a shorter prefix in the same reply.
+    scored: list[tuple[int, ShopInfo]] = []
+    for shop in shops:
+        full_name = " ".join(re.findall(r"\w+", shop.shopName.casefold()))
+        name_words = full_name.split()
+        if full_name and re.search(rf"(?<!\w){re.escape(full_name)}(?!\w)", reply):
+            scored.append((len(name_words) + 1, shop))
+            continue
+        if name_words and name_words[-1] == "store":
+            name_words = name_words[:-1]
+        for length in range(len(name_words), 0, -1):
+            phrase = " ".join(name_words[:length])
+            if re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", reply):
+                scored.append((length, shop))
+                break
+    if scored:
+        best = max(score for score, _ in scored)
+        matches = [shop for score, shop in scored if score == best]
+        return (matches[0], "selected") if len(matches) == 1 else (None, "ambiguous")
+
+    if re.search(r"\b(?:shop|store|branch)\b", reply):
+        return None, "invalid"
+    return None, "unrelated"
+
+
+def _course_selection(message: str, courses: list[CourseInfo]) -> tuple[CourseInfo | None, str]:
+    """Resolve a course reply against the options shown after shop selection."""
+    reply = " ".join(re.findall(r"\w+", message.casefold()))
+    if not reply or not courses:
+        return None, "unrelated"
+
+    course_id_match = re.search(r"\b(?:course|service|id) (\d+)\b", reply)
+    if course_id_match or re.fullmatch(r"\d+", reply):
+        course_id = int(course_id_match.group(1) if course_id_match else reply)
+        matches = [course for course in courses if course.courseId == course_id]
+        return (matches[0], "selected") if len(matches) == 1 else (None, "invalid")
+
+    ordinal = re.fullmatch(
+        r"(?:the )?(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)(?: one| service)?",
+        reply,
+    )
+    if ordinal:
+        position = {
+            "first": 1, "1st": 1, "second": 2, "2nd": 2,
+            "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+            "fifth": 5, "5th": 5,
+        }[ordinal.group(1)]
+        if position <= len(courses):
+            return courses[position - 1], "selected"
+        return None, "invalid"
+
+    scored: list[tuple[int, CourseInfo]] = []
+    for course in courses:
+        name = " ".join(re.findall(r"\w+", course.courseName.casefold()))
+        words = name.split()
+        for length in range(len(words), 0, -1):
+            phrase = " ".join(words[:length])
+            if re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", reply):
+                scored.append((length, course))
+                break
+    if scored:
+        best = max(score for score, _ in scored)
+        matches = [course for score, course in scored if score == best]
+        return (matches[0], "selected") if len(matches) == 1 else (None, "ambiguous")
+    return None, "unrelated"
 
 
 def _welcome_message() -> str:
@@ -349,10 +467,26 @@ class ChatEndpoint:
                 conversation.add_message("assistant", response_message)
                 metrics.incr("go_back_total")
             else:
-                intent = self._classify_intent(request.message)
-                response = await self._handle_intent(
-                    intent, request.message, state, session.session_id, conversation
+                response = await self._handle_booking_confirmation_reply(
+                    request.message, state, conversation
                 )
+                if response is None:
+                    response = await self._handle_phone_reply(request.message, state, conversation)
+                if response is None:
+                    response = await self._handle_slot_reply(request.message, state, conversation)
+                if response is None:
+                    response = await self._handle_shop_reply(request.message, state, conversation)
+                if response is None:
+                    response = await self._handle_course_reply(request.message, state, conversation)
+                if response is None:
+                    response = await self._handle_booking_detail_reply(
+                        request.message, state, conversation
+                    )
+                if response is None:
+                    intent = self._classify_intent(request.message)
+                    response = await self._handle_intent(
+                        intent, request.message, state, session.session_id, conversation
+                    )
                 state = response.state
                 response_message = response.message
 
@@ -408,6 +542,457 @@ class ChatEndpoint:
     def _is_go_back(self, message: str) -> bool:
         """Check for 'go back' keywords."""
         return message.lower().strip() in ("go back", "back")
+
+    async def _handle_shop_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        """Interpret a short answer while the previous shop question is pending."""
+        if state.phase != ConversationPhase.SEARCHING_SHOPS or not state.last_tool_result:
+            return None
+        try:
+            result = SearchShopsResponse.model_validate(state.last_tool_result)
+        except ValueError:
+            return None
+        if not result.success or not result.data:
+            return None
+
+        shop, status = _shop_selection(message, result.data)
+        if status == "unrelated":
+            # A different explicit intent can interrupt the question. Otherwise
+            # a short unmatched answer is still an answer to that question.
+            if self._classify_intent(message).intent != IntentType.UNKNOWN:
+                return None
+            status = "invalid"
+        if shop is None:
+            hint = (
+                "That could match more than one shop."
+                if status == "ambiguous"
+                else "I couldn't find that shop."
+            )
+            msg = f"{hint} Please choose one of the shops listed above by name or ID."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+
+        state.booking_context.shop_id = shop.shopId
+        state.booking_context.shop_name = shop.shopName
+        return await self._run_search_courses(
+            state, conversation, get_metrics(), intro=f"You chose {shop.shopName}. "
+        )
+
+    async def _handle_course_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        """Interpret the next reply using the displayed courses and their durations."""
+        if state.phase != ConversationPhase.SEARCHING_COURSES or not state.last_tool_result:
+            return None
+        try:
+            result = SearchCoursesResponse.model_validate(state.last_tool_result)
+        except ValueError:
+            return None
+        if not result.success or not result.data:
+            return None
+
+        intent = self._classify_intent(message).intent
+        if intent in {
+            IntentType.GREETING, IntentType.GOODBYE, IntentType.HELP,
+            IntentType.LOOKUP_BOOKING, IntentType.CANCEL_BOOKING,
+            IntentType.MODIFY_BOOKING, IntentType.SEARCH_SHOPS,
+        }:
+            return None
+
+        course, status = _course_selection(message, result.data)
+        if course is None:
+            if status == "unrelated" and intent != IntentType.UNKNOWN:
+                return None
+            hint = (
+                "That could match more than one service."
+                if status == "ambiguous" else "I couldn't find that service."
+            )
+            msg = f"{hint} Please choose a listed service by name or ID."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+
+        ctx = state.booking_context
+        ctx.course_id = course.courseId
+        ctx.course_name = course.courseName
+        slots = _slots_from_message(message)
+        for key in ("date", "start_time", "duration", "number_of_people"):
+            if key in slots:
+                setattr(ctx, key, slots[key])
+
+        options = [item.duration for item in course.durations]
+        if not options and course.duration is not None:
+            options = [course.duration]
+        invalid_duration = (
+            ctx.duration is not None and bool(options) and ctx.duration not in options
+        )
+        if invalid_duration:
+            ctx.duration = None
+
+        state, ok = self._conversation_manager.transition(state, "choose_course")
+        if not ok:
+            return IntentResponse(
+                False, state.error_message or "Invalid state", state, conversation
+            )
+        return await self._advance_booking_details(
+            state, conversation, invalid_duration=invalid_duration
+        )
+
+    async def _handle_booking_detail_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        if state.phase != ConversationPhase.COLLECTING_INFO:
+            return None
+        intent = self._classify_intent(message).intent
+        if intent in {
+            IntentType.GREETING, IntentType.GOODBYE, IntentType.HELP,
+            IntentType.LOOKUP_BOOKING, IntentType.CANCEL_BOOKING,
+            IntentType.MODIFY_BOOKING,
+        }:
+            return None
+
+        ctx = state.booking_context
+        slots = _slots_from_message(message)
+        if ctx.number_of_people is None and message.strip().isdigit():
+            slots["number_of_people"] = int(message.strip())
+        if slots.get("date"):
+            ctx.date = slots["date"]
+        if slots.get("start_time"):
+            ctx.start_time = slots["start_time"]
+        if slots.get("number_of_people"):
+            ctx.number_of_people = slots["number_of_people"]
+
+        invalid_duration = False
+        if slots.get("duration"):
+            options = self._selected_course_durations(state)
+            if options and slots["duration"] not in options:
+                invalid_duration = True
+            else:
+                ctx.duration = slots["duration"]
+        return await self._advance_booking_details(
+            state, conversation, invalid_duration=invalid_duration
+        )
+
+    def _selected_course_durations(self, state: ConversationState) -> list[int]:
+        try:
+            result = SearchCoursesResponse.model_validate(state.last_tool_result)
+        except ValueError:
+            return []
+        for course in result.data:
+            if course.courseId == state.booking_context.course_id:
+                return [item.duration for item in course.durations] or (
+                    [course.duration] if course.duration is not None else []
+                )
+        return []
+
+    def _available_slots(self, state: ConversationState) -> list[SlotInfo]:
+        """Use only capacity-eligible slots from the last availability response."""
+        try:
+            result = SearchAvailableSlotsResponse.model_validate(state.last_tool_result)
+        except ValueError:
+            return []
+        if not result.success:
+            return []
+        party_size = state.booking_context.number_of_people or 1
+        return [slot for slot in result.data if slot.availableCapacity >= party_size]
+
+    def _nearby_slots(
+        self, state: ConversationState, preferred: str, excluded: set[str] | None = None
+    ) -> list[str]:
+        target = time.fromisoformat(preferred)
+        target_minutes = target.hour * 60 + target.minute
+        candidates = {
+            slot.startTime.strftime("%H:%M") for slot in self._available_slots(state)
+        } - (excluded or set())
+
+        def distance(value: str) -> tuple[int, str]:
+            slot_time = time.fromisoformat(value)
+            minutes = slot_time.hour * 60 + slot_time.minute
+            return abs(minutes - target_minutes), value
+
+        return sorted(
+            candidates,
+            key=distance,
+        )[:3]
+
+    def _suggest_slot_reply(
+        self,
+        state: ConversationState,
+        conversation: Conversation,
+        prefix: str,
+        excluded: set[str] | None = None,
+    ) -> IntentResponse:
+        state.offered_slot_time = None
+        preferred = state.booking_context.start_time or "00:00"
+        alternatives = self._nearby_slots(state, preferred, excluded)
+        state.suggested_slot_times = alternatives
+        if alternatives:
+            listed = ", ".join(alternatives)
+            msg = f"{prefix} Nearby available times: {listed}. Choose one or suggest another time."
+        else:
+            msg = (
+                f"{prefix} No slots are available for that date and party size. "
+                "Please choose another date."
+            )
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
+    def _offer_slot_reply(
+        self, state: ConversationState, conversation: Conversation, selected: str
+    ) -> IntentResponse:
+        state.offered_slot_time = selected
+        state.suggested_slot_times = []
+        ctx = state.booking_context
+        msg = (
+            f"{selected} on {ctx.date} is available for {ctx.number_of_people} "
+            f"people and {ctx.duration} minutes. Confirm this slot?"
+        )
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
+    async def _handle_slot_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        if state.phase != ConversationPhase.SEARCHING_SLOTS or not state.last_tool_result:
+            return None
+        try:
+            SearchAvailableSlotsResponse.model_validate(state.last_tool_result)
+        except ValueError:
+            return None
+
+        reply = message.casefold().strip()
+        if reply in {"yes", "y", "confirm", "that's fine", "that works"}:
+            if not state.offered_slot_time:
+                if len(state.suggested_slot_times) == 1:
+                    state.offered_slot_time = state.suggested_slot_times[0]
+                else:
+                    return self._suggest_slot_reply(
+                        state, conversation, "Please choose an available time first."
+                    )
+            chosen = state.offered_slot_time
+            if chosen not in {
+                slot.startTime.strftime("%H:%M") for slot in self._available_slots(state)
+            }:
+                return self._suggest_slot_reply(
+                    state, conversation, "That time is no longer available."
+                )
+            state.booking_context.start_time = chosen
+            state.offered_slot_time = None
+            state.suggested_slot_times = []
+            state, ok = self._conversation_manager.transition(state, "confirm_slot")
+            if not ok:
+                return IntentResponse(
+                    False, state.error_message or "Invalid state", state, conversation
+                )
+            if state.booking_context.phone_number:
+                return self._prepare_booking_confirmation(state, conversation)
+            msg = "What phone number should we use for the booking?"
+            conversation.add_message("assistant", msg)
+            return IntentResponse(True, msg, state, conversation)
+
+        if reply in {"no", "n", "reject", "another time"}:
+            rejected = {state.offered_slot_time} if state.offered_slot_time else set()
+            return self._suggest_slot_reply(
+                state, conversation, "Okay, choose a different time.", rejected
+            )
+
+        if _is_help(message) or _is_goodbye(message):
+            return None
+
+        if reply.startswith(("no,", "no ")):
+            state.offered_slot_time = None
+            message = message[3:].strip(" ,")
+            reply = message.casefold()
+        parsed = _slots_from_message(message)
+        new_date = parsed.get("date")
+        if new_date and new_date != state.booking_context.date:
+            state.booking_context.date = new_date
+            if parsed.get("start_time"):
+                state.booking_context.start_time = parsed["start_time"]
+            state.offered_slot_time = None
+            state.suggested_slot_times = []
+            state, ok = self._conversation_manager.transition(state, "change_booking_date")
+            if not ok:
+                return IntentResponse(
+                    False, state.error_message or "Invalid state", state, conversation
+                )
+            return await self._advance_booking_details(state, conversation)
+        selected = parsed.get("start_time")
+        if not selected:
+            change = re.search(r"\b(?:try|prefer|to|choose)\s+([\d:]+\s*(?:am|pm)?)", reply)
+            if change:
+                selected = _slots_from_message(change.group(1)).get("start_time")
+        if not selected:
+            ordinal = re.fullmatch(
+                r"(?:the )?(first|second|third|1st|2nd|3rd)(?: one| option)?", reply
+            )
+            if ordinal:
+                index = {
+                    "first": 0, "1st": 0, "second": 1, "2nd": 1,
+                    "third": 2, "3rd": 2,
+                }[ordinal.group(1)]
+                if index < len(state.suggested_slot_times):
+                    selected = state.suggested_slot_times[index]
+        if not selected:
+            msg = "Please confirm the offered slot or choose an available time."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+
+        state.booking_context.start_time = selected
+        if selected in {
+            slot.startTime.strftime("%H:%M") for slot in self._available_slots(state)
+        }:
+            return self._offer_slot_reply(state, conversation, selected)
+        return self._suggest_slot_reply(
+            state, conversation, f"{selected} is unavailable."
+        )
+
+    async def _handle_phone_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        if state.phase != ConversationPhase.COLLECTING_PHONE:
+            return None
+        if _is_help(message) or _is_goodbye(message):
+            return None
+        phone = re.search(r"(?<!\d)\d{9,11}(?!\d)", message)
+        if not phone:
+            msg = "Please provide a 9 to 11 digit phone number for the booking."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        state.booking_context.phone_number = phone.group(0)
+        return self._prepare_booking_confirmation(state, conversation)
+
+    def _prepare_booking_confirmation(
+        self, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse:
+        ctx = state.booking_context
+        request = CreateBookingRequest(
+            shopId=ctx.shop_id,
+            phoneNumber=ctx.phone_number,
+            bookingDate=date.fromisoformat(ctx.date),
+            startTime=time.fromisoformat(ctx.start_time),
+            duration=ctx.duration,
+            numberOfPeople=ctx.number_of_people,
+            services=[
+                {"personIndex": index, "courseId": ctx.course_id}
+                for index in range(1, ctx.number_of_people + 1)
+            ],
+        )
+        state.pending_action = PendingAction(
+            tool_name="createBooking", arguments=request.model_dump(mode="json")
+        )
+        state, ok = self._conversation_manager.transition(state, "prepare_booking")
+        if not ok:
+            return IntentResponse(
+                False, state.error_message or "Invalid state", state, conversation
+            )
+        msg = (
+            f"Please confirm booking: {ctx.course_name} at {ctx.shop_name} on {ctx.date} "
+            f"at {ctx.start_time} for {ctx.number_of_people} people, {ctx.duration} minutes, "
+            f"phone {ctx.phone_number}. Shall I book it?"
+        )
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
+    async def _handle_booking_confirmation_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        if (
+            state.phase != ConversationPhase.CONFIRMING_ACTION
+            or not state.pending_action
+            or state.pending_action.tool_name != "createBooking"
+        ):
+            return None
+        reply = message.casefold().strip()
+        if reply in {"no", "n", "cancel"}:
+            state.pending_action = None
+            state.phase = ConversationPhase.SEARCHING_SLOTS
+            return self._suggest_slot_reply(
+                state, conversation, "Booking not submitted. Choose a time to continue."
+            )
+        if reply not in {"yes", "y", "confirm", "book it"}:
+            msg = "Please confirm or cancel this booking."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+
+        result = await self._fetch_available_slots(state)
+        if not result.success:
+            msg = "I couldn't verify the slot. Please try confirming again."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        state.last_tool_result = result.model_dump(mode="json")
+        selected = state.booking_context.start_time
+        if selected not in {
+            slot.startTime.strftime("%H:%M") for slot in self._available_slots(state)
+        }:
+            state.pending_action = None
+            state.phase = ConversationPhase.SEARCHING_SLOTS
+            return self._suggest_slot_reply(
+                state, conversation, f"{selected} is no longer available."
+            )
+
+        assert self._tool_registry is not None
+        orchestrator = self._tool_orchestrator or ToolOrchestrator(self._tool_registry)
+        try:
+            booking = await orchestrator.execute_pending_action(state)
+        except ChatbotError as error:
+            if error.code in {
+                ChatbotErrorCode.TIME_SLOT_UNAVAILABLE,
+                ChatbotErrorCode.THERAPIST_UNAVAILABLE,
+                ChatbotErrorCode.BOOKING_CONFLICT,
+            }:
+                fresh = await self._fetch_available_slots(state)
+                state.last_tool_result = fresh.model_dump(mode="json")
+                state.phase = ConversationPhase.SEARCHING_SLOTS
+                if not fresh.success:
+                    msg = "That slot was taken. I couldn't refresh availability; please try again."
+                    conversation.add_message("assistant", msg)
+                    return IntentResponse(False, msg, state, conversation)
+                return self._suggest_slot_reply(
+                    state, conversation, "That slot was taken before booking completed."
+                )
+            raise
+        if not booking.get("success") or not booking.get("bookingCode"):
+            state.phase = ConversationPhase.COLLECTING_PHONE
+            msg = "The booking was not completed. Please check your phone number and try again."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        state, ok = self._conversation_manager.transition(state, "booking_created")
+        if not ok:
+            return IntentResponse(
+                False, state.error_message or "Invalid state", state, conversation
+            )
+        state.offered_slot_time = None
+        state.suggested_slot_times = []
+        msg = f"Your booking is confirmed. Booking code: {booking['bookingCode']}."
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
+    async def _advance_booking_details(
+        self, state: ConversationState, conversation: Conversation, invalid_duration: bool = False
+    ) -> IntentResponse:
+        ctx = state.booking_context
+        options = self._selected_course_durations(state)
+        if ctx.duration is not None and options and ctx.duration not in options:
+            ctx.duration = None
+            invalid_duration = True
+        if ctx.duration is None:
+            choices = ", ".join(str(value) for value in options)
+            msg = (
+                ("That duration isn't available. " if invalid_duration else "")
+                + f"What duration would you like for {ctx.course_name}? "
+                + (f"Available: {choices} minutes." if choices else "Please specify minutes.")
+            )
+        elif not ctx.date:
+            msg = f"{ctx.course_name} for {ctx.duration} minutes. What date would you like?"
+        elif not ctx.start_time:
+            msg = "What start time would you like?"
+        elif not ctx.number_of_people:
+            msg = "For how many people?"
+        else:
+            return await self._run_search_slots(state, conversation, get_metrics())
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
 
     def _classify_intent(self, message: str) -> Intent:
         """Classify user intent with deterministic, conversation-first rules."""
@@ -527,6 +1112,9 @@ class ChatEndpoint:
                 state, conversation, metrics, intro="Which service would you like? "
             )
 
+        if state.phase == ConversationPhase.COLLECTING_INFO:
+            return await self._advance_booking_details(state, conversation)
+
         # Have course+date but no slot — search slots
         if not (ctx.start_time and ctx.duration and ctx.number_of_people):
             metrics.incr("slot_filling_auto_search_slots_total")
@@ -567,9 +1155,12 @@ class ChatEndpoint:
         intro: str = "",
     ) -> IntentResponse:
         assert self._tool_registry is not None
-        state, ok = self._conversation_manager.transition(state, "search_shops")
-        if not ok and state.phase != ConversationPhase.SEARCHING_SHOPS:
-            return IntentResponse(False, state.error_message or "Invalid state", state, conversation)
+        if state.phase != ConversationPhase.SEARCHING_SHOPS:
+            state, ok = self._conversation_manager.transition(state, "search_shops")
+            if not ok:
+                return IntentResponse(
+                    False, state.error_message or "Invalid state", state, conversation
+                )
 
         tool = self._tool_registry.get("searchShops")
         result = await tool.execute(SearchShopsRequest())
@@ -601,9 +1192,12 @@ class ChatEndpoint:
             return await self._run_search_shops(
                 state, conversation, metrics, intro="I need a shop first. "
             )
-        state, ok = self._conversation_manager.transition(state, "select_shop")
-        if not ok and state.phase != ConversationPhase.SEARCHING_COURSES:
-            return IntentResponse(False, state.error_message or "Invalid state", state, conversation)
+        if state.phase != ConversationPhase.SEARCHING_COURSES:
+            state, ok = self._conversation_manager.transition(state, "select_shop")
+            if not ok:
+                return IntentResponse(
+                    False, state.error_message or "Invalid state", state, conversation
+                )
 
         tool = self._tool_registry.get("searchCourses")
         result = await tool.execute(SearchCoursesRequest(shopId=state.booking_context.shop_id))
@@ -618,9 +1212,17 @@ class ChatEndpoint:
             msg = f"{intro}No services are available at that shop right now."
             conversation.add_message("assistant", msg)
             return IntentResponse(True, msg, state, conversation)
-        body = "\n".join(
-            f"- {c.courseName} (id: {c.courseId}, {c.duration}min, {c.price:,}đ)" for c in courses
-        )
+        def course_label(course: Any) -> str:
+            durations = course.durations or (
+                [course] if course.duration is not None and course.price is not None else []
+            )
+            options = ", ".join(
+                f"{option.duration}min, {option.price:,}đ" for option in durations
+            )
+            details = f", {options}" if options else ""
+            return f"- {course.courseName} (id: {course.courseId}{details})"
+
+        body = "\n".join(course_label(course) for course in courses)
         msg = f"{intro}Here are the services:\n{body}\nWhich one would you like?"
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation, data={"courses": [c.model_dump() for c in courses]})
@@ -660,40 +1262,56 @@ class ChatEndpoint:
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
 
-        state, ok = self._conversation_manager.transition(state, "select_course")
-        if not ok and state.phase != ConversationPhase.SEARCHING_SLOTS:
-            return IntentResponse(False, state.error_message or "Invalid state", state, conversation)
+        if state.phase != ConversationPhase.SEARCHING_SLOTS:
+            action = (
+                "search_slots" if state.phase == ConversationPhase.COLLECTING_INFO
+                else "select_course"
+            )
+            state, ok = self._conversation_manager.transition(state, action)
+            if not ok:
+                return IntentResponse(
+                    False, state.error_message or "Invalid state", state, conversation
+                )
 
-        from datetime import date as date_type
-        from datetime import time as time_type
-
-        tool = self._tool_registry.get("searchAvailableSlots")
-        slots_request = SearchAvailableSlotsRequest(
-            shopId=ctx.shop_id,
-            date=date_type.fromisoformat(ctx.date) if ctx.date else date_type.today(),
-            duration=ctx.duration or 60,
-            numberOfPeople=ctx.number_of_people or 1,
-            startTime=time_type.fromisoformat(ctx.start_time) if ctx.start_time else None,
-            courseIds=str(ctx.course_id),
-        )
-        result = await tool.execute(slots_request)
+        result = await self._fetch_available_slots(state)
         state.last_tool_result = result.model_dump(mode="json")
-        metrics.incr("tools_executed_total", labels={"tool": "searchAvailableSlots"})
         if not result.success:
             msg = f"Sorry, I couldn't find slots. {result.message}"
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
-        slots = result.data or []
-        if not slots:
-            msg = f"{intro}No slots available for those criteria. Try a different time?"
-            conversation.add_message("assistant", msg)
-            return IntentResponse(True, msg, state, conversation)
-        body = "\n".join(
-            f"- {s.startTime}-{s.endTime} (capacity: {s.availableCapacity})" for s in slots
+        preferred = ctx.start_time
+        available_times = {
+            slot.startTime.strftime("%H:%M") for slot in self._available_slots(state)
+        }
+        if preferred in available_times:
+            return self._offer_slot_reply(state, conversation, preferred)
+        return self._suggest_slot_reply(
+            state, conversation, f"{preferred} is unavailable."
         )
-        msg = f"{intro}Here are the available slots:\n{body}\nWhich time works for you?"
-        conversation.add_message("assistant", msg)
-        return IntentResponse(True, msg, state, conversation, data={"slots": [s.model_dump() for s in slots]})
+
+    async def _fetch_available_slots(
+        self, state: ConversationState
+    ) -> SearchAvailableSlotsResponse:
+        """Fetch the full day once so matching and nearby choices share the result."""
+        assert self._tool_registry is not None
+        ctx = state.booking_context
+        booking_date = ctx.date
+        if booking_date in {"today", "tomorrow"}:
+            from datetime import timedelta
+
+            offset = 1 if booking_date == "tomorrow" else 0
+            booking_date = (date.today() + timedelta(days=offset)).isoformat()
+        request = SearchAvailableSlotsRequest(
+            shopId=ctx.shop_id,
+            date=date.fromisoformat(booking_date),
+            duration=ctx.duration,
+            numberOfPeople=ctx.number_of_people,
+            courseIds=str(ctx.course_id),
+        )
+        tool = self._tool_registry.get("searchAvailableSlots")
+        result = await tool.execute(request)
+        get_metrics().incr("tools_executed_total", labels={"tool": "searchAvailableSlots"})
+        return result
 
     async def _run_check_eligibility(
         self,

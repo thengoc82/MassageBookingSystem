@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from chatbot.app.chat_endpoint import ChatEndpoint, ChatRequest, create_app
 from chatbot.conversation.state import ConversationPhase
 from chatbot.models import SearchShopsResponse
+from chatbot.models.conversation import Conversation
 from chatbot.session.store import RedisSessionStore, SessionData
 from chatbot.tools.registry import ToolRegistry
 
@@ -36,6 +37,17 @@ def make_endpoint() -> ChatEndpoint:
     endpoint._http_client = MagicMock()
     endpoint._initialized = True
     return endpoint
+
+
+def test_conversation_history_round_trip() -> None:
+    conversation = Conversation()
+    assert conversation.is_empty()
+    conversation.add_message("user", "Hello")
+    conversation.add_message("assistant", "Welcome")
+    saved = SessionData(session_id="test-1", conversation_history=conversation.history)
+    restored = Conversation(history=saved.conversation_history)
+    assert restored.history == [["user", "Hello"], ["assistant", "Welcome"]]
+    assert restored.format() == "user: Hello\nassistant: Welcome"
 
 
 # --- Basic process_message flow ---
@@ -231,11 +243,12 @@ async def test_book_me_a_massage_slot_filling() -> None:
 @pytest.mark.asyncio
 async def test_initialize_and_close() -> None:
     with patch("chatbot.app.chat_endpoint.create_client", new_callable=AsyncMock), \
-         patch("chatbot.app.chat_endpoint.RedisSessionStore"), \
+             patch("chatbot.app.chat_endpoint.RedisSessionStore") as mock_store, \
          patch("chatbot.app.chat_endpoint.OpenAILLMService") as mock_llm, \
          patch("chatbot.app.chat_endpoint.PgVectorStore"):
         mock_llm_instance = MagicMock()
         mock_llm.return_value = mock_llm_instance
+        mock_store.return_value.close = AsyncMock()
         endpoint = ChatEndpoint(llm_service=mock_llm_instance)
         await endpoint.initialize()
         assert endpoint._initialized

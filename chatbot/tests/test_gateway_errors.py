@@ -109,6 +109,12 @@ def test_map_flask_error_time_slot_unavailable():
     assert err.retryable is True
 
 
+def test_map_pos_slot_conflicts_to_availability_error():
+    for code in ("SLOT_UNAVAILABLE", "INSUFFICIENT_THERAPISTS"):
+        err = map_flask_error(422, code, "No therapist is available")
+        assert isinstance(err, TimeSlotUnavailableError)
+
+
 def test_map_flask_error_invalid_booking_date():
     err = map_flask_error(422, "INVALID_BOOKING_DATE", "Invalid date")
     assert isinstance(err, InvalidBookingDateError)
