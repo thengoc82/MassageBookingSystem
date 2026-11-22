@@ -16,7 +16,7 @@ psycopg2-binary
 langchain
 beautifulsoup4
 markdown
-frontmatter
+PyYAML
 
 # Testing
 pytest

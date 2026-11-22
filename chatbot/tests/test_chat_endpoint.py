@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from chatbot.app.chat_endpoint import ChatEndpoint, ChatRequest, create_app
 from chatbot.conversation.state import ConversationPhase
 from chatbot.models import SearchShopsResponse
+from chatbot.models import FAQCitation, FAQItem, FAQSearchResponse
+from chatbot.conversation.state import ConversationState
 from chatbot.models.conversation import Conversation
 from chatbot.session.store import RedisSessionStore, SessionData
 from chatbot.tools.registry import ToolRegistry
@@ -125,6 +127,39 @@ async def test_parse_intent_faq_search() -> None:
     endpoint = ChatEndpoint()
     assert endpoint._classify_intent("I have a question").intent.value == "faq"
     assert endpoint._classify_intent("faq").intent.value == "faq"
+    assert endpoint._classify_intent("What is Full Body Massage?").intent.value == "faq"
+    assert endpoint._classify_intent("How do I cancel my booking?").intent.value == "faq"
+    assert endpoint._classify_intent("Cancel my booking").intent.value == "cancel_booking"
+
+
+@pytest.mark.asyncio
+async def test_faq_during_course_selection_keeps_booking_context() -> None:
+    endpoint = make_endpoint()
+    state = ConversationState(phase=ConversationPhase.SEARCHING_COURSES)
+    state.booking_context.shop_id = 2
+    state.last_tool_result = {"courses": ["Full Body Massage"]}
+    session = SessionData(session_id="test-1", conversation_state=state.model_dump())
+    endpoint._session_store.get_session = AsyncMock(return_value=session)
+    endpoint._tool_registry.has = MagicMock(return_value=True)
+    tool = AsyncMock()
+    tool.execute.return_value = FAQSearchResponse(
+        success=True, message="Found 1 relevant chunk", data=[FAQItem(
+            content="Full Body Massage\n\nProvides a full body treatment.", score=0.9,
+            citation=FAQCitation(source_file="/service.md", document_title="Full Body Massage",
+                                 heading="Service", document_id="service-full-body"),
+        )],
+    )
+    endpoint._tool_registry.get = MagicMock(return_value=tool)
+
+    response = await endpoint.process_message(ChatRequest(
+        message="What is Full Body Massage?", session_id="test-1"
+    ))
+    assert response.phase == ConversationPhase.SEARCHING_COURSES
+    assert "Provides a full body treatment" in response.message
+    assert response.data[0]["citation"]["document_id"] == "service-full-body"
+    assert session.conversation_state["booking_context"]["shop_id"] == 2
+    assert session.conversation_state["last_tool_result"] == state.last_tool_result
+    assert tool.execute.call_args.args[0].shopId == 2
 
 
 @pytest.mark.asyncio

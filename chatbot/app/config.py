@@ -1,9 +1,13 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pathlib import Path
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="CHATBOT_")
+    model_config = SettingsConfigDict(
+        env_prefix="CHATBOT_",
+        env_file = Path(__file__).resolve().parents[1] / ".env",
+        env_file_encoding="utf-8",
+    )
 
     redis_url: str = Field(default="redis://localhost:6379/0")
     session_expiration_seconds: int = Field(default=3600)
@@ -15,6 +19,7 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="all-MiniLM-L6-v2")
     embedding_dim: int = Field(default=384, ge=1)
     vector_store_top_k: int = Field(default=5, ge=1)
+    vector_store_min_score: float = Field(default=0.35, ge=-1, le=1)
     pg_dsn: str = Field(default="")
 
 

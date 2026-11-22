@@ -1,5 +1,8 @@
 ---
 title: Frequently Asked Questions
+document_id: general-faq
+category: faq
+language: en
 ---
 
 # General Questions

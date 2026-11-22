@@ -5,8 +5,6 @@ The service is configurable and replaceable.
 """
 
 from abc import ABC, abstractmethod
-from typing import cast
-
 import numpy as np
 
 
@@ -36,5 +34,9 @@ class SentenceTransformerEmbeddingService(EmbeddingService):
 
     def embed_texts(self, texts: list[str]) -> list[np.ndarray]:
         """Embed a list of texts using the configured model."""
+        if not texts:
+            return []
         embeddings = self._model.encode(texts, convert_to_numpy=True)
-        return cast(list[np.ndarray], embeddings)
+        if embeddings.shape != (len(texts), self._embedding_dim):
+            raise ValueError("Embedding model output does not match configured dimension")
+        return [np.asarray(row) for row in embeddings]

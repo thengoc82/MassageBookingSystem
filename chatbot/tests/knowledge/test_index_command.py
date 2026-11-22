@@ -59,11 +59,11 @@ Some content here.
             ),
         ):
             mock_embedding_service.embed_texts.return_value = np.array([[0.1] * 384], dtype=float)
-            result = runner.invoke(cli, ["--root-dir", str(root)])
+            result = runner.invoke(cli, ["--root-dir", str(root)], env={"CHATBOT_PG_DSN": "postgresql://test"})
 
     assert result.exit_code == 0, result.output
-    mock_vector_store.clear.assert_called_once()
-    mock_vector_store.add_chunks.assert_called_once()
+    mock_vector_store.clear.assert_not_called()
+    mock_vector_store.replace_document.assert_called_once()
     mock_vector_store.close.assert_called_once()
 
 
@@ -82,9 +82,9 @@ def test_index_command_empty_dir(
                 return_value=mock_vector_store,
             ),
         ):
-            result = runner.invoke(cli, ["--root-dir", tmpdir])
+            result = runner.invoke(cli, ["--root-dir", tmpdir], env={"CHATBOT_PG_DSN": "postgresql://test"})
 
     assert result.exit_code == 0, result.output
     mock_vector_store.clear.assert_not_called()
-    mock_vector_store.add_chunks.assert_not_called()
+    mock_vector_store.replace_document.assert_not_called()
     mock_vector_store.close.assert_called_once()

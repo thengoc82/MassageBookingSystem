@@ -163,6 +163,9 @@ class CheckEligibilityResponse(BaseModel):
 class FAQSearchRequest(BaseModel):
     query: str = Field(min_length=1)
     topK: int = Field(default=3, ge=1, le=10)
+    shopId: int | None = None
+    category: str | None = None
+    language: str | None = None
 
 
 class FAQCitation(BaseModel):
@@ -171,6 +174,8 @@ class FAQCitation(BaseModel):
     source_file: str
     document_title: str
     heading: str | None = None
+    document_id: str | None = None
+    source: str | None = None
 
 
 class FAQItem(BaseModel):

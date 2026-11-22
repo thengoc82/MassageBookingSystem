@@ -159,7 +159,16 @@ class FAQSearchTool(BaseTool[FAQSearchRequest, FAQSearchResponse]):
                 "Knowledge service not configured",
             )
 
-        results = self._knowledge_service.query(request.query, top_k=request.topK)
+        filters = {
+            key: value for key, value in {
+                "shop_id": request.shopId,
+                "category": request.category,
+                "language": request.language,
+            }.items() if value is not None
+        }
+        results = self._knowledge_service.query(
+            request.query, top_k=request.topK, filter=filters
+        ) if filters else self._knowledge_service.query(request.query, top_k=request.topK)
 
         items = [
             FAQItem(
@@ -169,6 +178,8 @@ class FAQSearchTool(BaseTool[FAQSearchRequest, FAQSearchResponse]):
                     source_file=result.source_file,
                     document_title=result.title,
                     heading=result.heading,
+                    document_id=result.document_id,
+                    source=result.source,
                 ),
             )
             for result in results
