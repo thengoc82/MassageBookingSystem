@@ -1,5 +1,5 @@
 """Tests for session — Redis session storage"""
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from chatbot.app.config import Settings
@@ -143,6 +143,22 @@ async def test_close_when_none(store: RedisSessionStore) -> None:
 def test_session_key_format(store: RedisSessionStore) -> None:
     key = store._session_key("abc-123")
     assert key == "chatbot:session:abc-123"
+
+
+@pytest.mark.asyncio
+async def test_session_lock_acquires_and_releases_redis_lock(store: RedisSessionStore) -> None:
+    lock = MagicMock()
+    lock.acquire = AsyncMock(return_value=True)
+    lock.release = AsyncMock()
+    redis_client = MagicMock()
+    redis_client.lock.return_value = lock
+    with patch.object(store, "_get_redis", AsyncMock(return_value=redis_client)):
+        async with store.session_lock("s1"):
+            lock.acquire.assert_awaited_once()
+    lock.release.assert_awaited_once()
+    redis_client.lock.assert_called_once_with(
+        "chatbot:session-lock:s1", timeout=180, blocking_timeout=10
+    )
 
 
 @pytest.mark.asyncio

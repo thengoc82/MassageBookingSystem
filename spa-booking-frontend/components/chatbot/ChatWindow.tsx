@@ -28,6 +28,7 @@ export default function ChatWindow({ onClose }: Props) {
     isLoading,
     error,
     pendingConfirmation,
+    bookingProgress,
     confirm,
     cancel,
   } = useChat(user?.id ?? null);
@@ -100,7 +101,7 @@ export default function ChatWindow({ onClose }: Props) {
         {messages.length === 0 && (
           <div className="flex items-start">
             <div className="max-w-[88%] rounded-2xl rounded-bl-sm bg-white px-3.5 py-2.5 text-[15px] leading-relaxed text-basalt ring-1 ring-line">
-              Hi, I can book, change or cancel a massage for you. What would you like to do?
+              Hi, I can help you book a massage, look up a booking, or answer a question. What would you like to do?
             </div>
           </div>
         )}
@@ -108,6 +109,30 @@ export default function ChatWindow({ onClose }: Props) {
         {messages.map((m) => (
           <ChatMessage key={m.id} message={m} />
         ))}
+
+        {bookingProgress?.active && (
+          <div aria-label="Booking progress" className="rounded-xl bg-white p-3 text-sm text-basalt ring-1 ring-line">
+            <p className="font-semibold">Booking progress</p>
+            <p className="mt-1 text-ink-soft">
+              {bookingProgress.stage === "complete" ? "Booked" :
+                `Next: ${bookingProgress.stage === "confirmation" ? "confirm details" : bookingProgress.stage}`}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {Object.entries(bookingProgress.details)
+                .filter(([key]) => key !== "phone")
+                .map(([key, value]) => (
+                  <span key={key} className="rounded-full bg-[#F1F5F3] px-2.5 py-1 text-xs">
+                    {key.replaceAll("_", " ")}: {String(value)}
+                  </span>
+                ))}
+              {bookingProgress.details.phone && (
+                <span className="rounded-full bg-[#F1F5F3] px-2.5 py-1 text-xs">
+                  phone: ••••{String(bookingProgress.details.phone).slice(-4)}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {isLoading && (
           <div className="flex items-start gap-2">

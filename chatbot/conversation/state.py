@@ -19,6 +19,7 @@ class ConversationPhase(str, Enum):
     CONFIRMING_ACTION = "confirming_action"  # Generic for any write action
     ACTION_COMPLETE = "action_complete"  # Generic for any write action
     BOOKING_COMPLETE = "booking_complete" # specific for booking
+    BOOKING_UNCERTAIN = "booking_uncertain"
     LOOKING_UP_BOOKING = "looking_up_booking"
     FAQ_SEARCH = "faq_search"
     ERROR = "error"
@@ -38,9 +39,11 @@ class BookingContext(BaseModel):
     shop_name: str | None = None
     course_id: int | None = None
     course_name: str | None = None
+    course_duration_options: list[int] = Field(default_factory=list)
     addon_ids: list[int] = Field(default_factory=list)
     date: str | None = None
     start_time: str | None = None
+    time_preference: str | None = None
     duration: int | None = None
     number_of_people: int | None = None
     therapist_id: int | None = None
@@ -56,11 +59,59 @@ class ConversationState(BaseModel):
     phase: ConversationPhase = ConversationPhase.GREETING
     booking_context: BookingContext = Field(default_factory=BookingContext)
     pending_action: PendingAction | None = None  # Updated to store structured PendingAction
+    lookup_code: str | None = None
     last_tool_result: dict | None = None
     offered_slot_time: str | None = None
+    slot_confirmed: bool = False
     suggested_slot_times: list[str] = Field(default_factory=list)
     error_message: str | None = None
     step_count: int = 0
+
+    def booking_progress(self) -> dict[str, Any]:
+        """Return the customer-facing progress from the saved draft."""
+        stages = {
+            ConversationPhase.SEARCHING_SHOPS: "shop",
+            ConversationPhase.SEARCHING_COURSES: "service",
+            ConversationPhase.COLLECTING_INFO: "details",
+            ConversationPhase.SEARCHING_SLOTS: "time",
+            ConversationPhase.COLLECTING_PHONE: "contact",
+            ConversationPhase.CONFIRMING_ACTION: "confirmation",
+            ConversationPhase.BOOKING_COMPLETE: "complete",
+            ConversationPhase.BOOKING_UNCERTAIN: "verification",
+        }
+        stage = stages.get(self.phase)
+        ctx = self.booking_context
+        fields = {
+            "shop": ctx.shop_name,
+            "service": ctx.course_name,
+            "date": ctx.date,
+            "duration": ctx.duration,
+            "people": ctx.number_of_people,
+            "time": ctx.start_time if stage in {"contact", "confirmation", "complete", "verification"} else None,
+            "time_preference": ctx.time_preference,
+            "phone": ctx.phone_number,
+            "booking_code": ctx.booking_code,
+        }
+        missing = [
+            label for label, value in (
+                ("shop", ctx.shop_id), ("service", ctx.course_id),
+                ("duration", ctx.duration), ("date", ctx.date),
+                ("people", ctx.number_of_people),
+                ("time", ctx.start_time if stage in {"contact", "confirmation", "complete", "verification"} else None),
+                ("phone", ctx.phone_number),
+            ) if value is None
+        ]
+        return {
+            "active": stage is not None,
+            "stage": stage,
+            "details": {key: value for key, value in fields.items() if value is not None},
+            "missing": missing,
+            "requires_confirmation": (
+                self.phase == ConversationPhase.CONFIRMING_ACTION
+                and self.pending_action is not None
+                and self.pending_action.status == "pending"
+            ),
+        }
 
 
 
@@ -101,7 +152,7 @@ STATE_TRANSITIONS: list[StateTransition] = [
         from_phase=ConversationPhase.COLLECTING_INFO,
         action="search_slots",
         to_phase=ConversationPhase.SEARCHING_SLOTS,
-        required_context=["course_id", "date", "start_time", "duration", "number_of_people"],
+        required_context=["course_id", "date", "duration", "number_of_people"],
     ),
     StateTransition(
         from_phase=ConversationPhase.SEARCHING_SLOTS,
@@ -203,8 +254,9 @@ class ConversationManager:
     def transition(self, state: ConversationState, action: str) -> tuple[ConversationState, bool]:
         """Execute state transition."""
         if not self.can_transition(state.phase, action):
+            previous_phase = state.phase
             state.phase = ConversationPhase.ERROR
-            state.error_message = f"Invalid transition: {action} from {state.phase}"
+            state.error_message = f"Invalid transition: {action} from {previous_phase}"
             return state, False
 
         next_phase = self.get_next_phase(state.phase, action)
@@ -229,8 +281,10 @@ class ConversationManager:
         state.phase = ConversationPhase.GREETING
         state.booking_context = BookingContext()
         state.pending_action = None
+        state.lookup_code = None
         state.last_tool_result = None
         state.offered_slot_time = None
+        state.slot_confirmed = False
         state.suggested_slot_times = []
         state.error_message = None
         state.step_count = 0

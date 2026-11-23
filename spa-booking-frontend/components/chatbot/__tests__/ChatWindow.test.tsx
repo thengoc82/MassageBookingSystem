@@ -84,4 +84,22 @@ describe("ChatWindow", () => {
 
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
   });
+
+  it("renders only server-reported booking details and confirmation", () => {
+    mockUseChat.mockReturnValue({
+      messages: [], input: "", setInput: mockSetInput,
+      sendMessage: mockSendMessage, isLoading: false, error: null,
+      pendingConfirmation: true, confirm: jest.fn(), cancel: jest.fn(),
+      bookingProgress: {
+        active: true, stage: "confirmation",
+        details: { shop: "Shinjuku Store", people: 2, phone: "0901234567" },
+        missing: [], requires_confirmation: true,
+      },
+    });
+    render(<ChatWindow onClose={() => {}} />);
+    expect(screen.getByLabelText("Booking progress")).toHaveTextContent("Shinjuku Store");
+    expect(screen.getByLabelText("Booking progress")).toHaveTextContent("people: 2");
+    expect(screen.getByLabelText("Booking progress")).toHaveTextContent("••••4567");
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
 });

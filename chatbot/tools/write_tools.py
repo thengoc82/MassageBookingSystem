@@ -1,5 +1,6 @@
 # chatbot/tools/write_tools.py
 from chatbot.gateway.client import HTTPClient
+from chatbot.gateway.errors import ChatbotError, ChatbotErrorCode
 from chatbot.models import (
     CancelBookingRequest,
     CancelBookingResponse,
@@ -44,9 +45,21 @@ class ModifyBookingTool(BaseTool[ModifyBookingRequest, ModifyBookingResponse]):
 
     async def execute(self, request: ModifyBookingRequest) -> ModifyBookingResponse:
         booking_id = request.bookingId
-        payload = request.model_dump(mode="json", exclude={"bookingId"})
-        response = await self._client.put(f"/bookings/{booking_id}", json=payload)
-        return ModifyBookingResponse(**response)
+        payload = request.model_dump(mode="json", exclude={"bookingId"}, exclude_none=True)
+        unsupported = set(payload) - {"startTime", "therapistId"}
+        if unsupported or not payload:
+            raise ChatbotError(
+                ChatbotErrorCode.VALIDATION_ERROR,
+                "This booking change is not supported by the booking API",
+            )
+        if request.startTime:
+            payload["startTime"] = request.startTime.strftime("%H:%M")
+        response = await self._client.patch(f"/bookings/{booking_id}", json=payload)
+        data = response.get("data") or response
+        return ModifyBookingResponse(
+            success=response["success"], bookingId=data.get("bookingId"),
+            message=response.get("message"),
+        )
 
 
 class CancelBookingTool(BaseTool[CancelBookingRequest, CancelBookingResponse]):
@@ -60,6 +73,9 @@ class CancelBookingTool(BaseTool[CancelBookingRequest, CancelBookingResponse]):
 
     async def execute(self, request: CancelBookingRequest) -> CancelBookingResponse:
         booking_id = request.bookingId
-        payload = request.model_dump(mode="json", exclude={"bookingId"})
-        response = await self._client.delete(f"/bookings/{booking_id}", json=payload)
-        return CancelBookingResponse(**response)
+        response = await self._client.patch(f"/bookings/{booking_id}/cancel", json={})
+        data = response.get("data") or response
+        return CancelBookingResponse(
+            success=response["success"], bookingId=data.get("bookingId"),
+            message=response.get("message"),
+        )

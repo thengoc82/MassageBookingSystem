@@ -126,8 +126,8 @@ class BookingInfo(BaseModel):
     startTime: time
     numberOfPeople: int
     status: str
-    services: list[BookingService]
-    addOns: list[BookingAddOn]
+    services: list[BookingService] = Field(default_factory=list)
+    addOns: list[BookingAddOn] = Field(default_factory=list)
     therapistId: int | None = None
     therapistName: str | None = None
 

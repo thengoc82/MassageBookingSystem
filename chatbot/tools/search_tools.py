@@ -112,22 +112,34 @@ class LookupBookingTool(BaseTool[LookupBookingRequest, LookupBookingResponse]):
         self._client = http_client
 
     async def execute(self, request: LookupBookingRequest) -> LookupBookingResponse:
-        params = {}
-        if request.bookingCode:
-            # Try to get by booking code first
-            path = f"/bookings/{request.bookingCode}"
-            try:
-                response = await self._client.get(path)
-                return LookupBookingResponse(
-                    success=True, data=[response["data"]], message="Success"
-                )
-
-            except ChatbotError:
-                pass
-        if request.phoneNumber:
-            params["phone"] = request.phoneNumber
-        response = await self._client.get("/bookings", params=params)
-        return LookupBookingResponse(**response)
+        if not request.phoneNumber:
+            raise ChatbotError(
+                ChatbotErrorCode.VALIDATION_ERROR,
+                "A phone number is required to look up a booking",
+            )
+        page = 1
+        while True:
+            params = {"phone": request.phoneNumber}
+            if page > 1:
+                params["page"] = page
+            response = await self._client.get("/bookings", params=params)
+            payload = response.get("data")
+            listings = payload.get("data", []) if isinstance(payload, dict) else (payload or [])
+            pagination = payload.get("pagination") if isinstance(payload, dict) else response.get("pagination")
+            if request.bookingCode:
+                listings = [
+                    item for item in listings
+                    if item.get("bookingCode") == request.bookingCode
+                ]
+            if listings or not request.bookingCode or not pagination or page >= pagination.get("totalPages", page):
+                break
+            page += 1
+        return LookupBookingResponse(
+            success=bool(response.get("success")),
+            data=listings,
+            message=response.get("message", "Success"),
+            pagination=pagination,
+        )
 
 
 class CheckEligibilityTool(BaseTool[CheckEligibilityRequest, CheckEligibilityResponse]):

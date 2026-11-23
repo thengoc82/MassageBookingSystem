@@ -8,12 +8,10 @@ class ResponseGenerator:
     def __init__(self, llm_service: LLMService):
         self.llm_service = llm_service
 
-    def generate_response(self, conversation: Conversation) -> str:
+    async def generate_response(self, conversation: Conversation) -> str:
         """
         Generates a response to the user.
         """
-        return self.llm_service.completion(
-            prompt=RESPONSE_PROMPT,
-            conversation=conversation,
-            temperature=0.1,
+        return await self.llm_service.generate_response(
+            f"{RESPONSE_PROMPT}\n\nConversation:\n{conversation.format()}", {}
         )

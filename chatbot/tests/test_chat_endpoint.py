@@ -280,7 +280,8 @@ async def test_initialize_and_close() -> None:
     with patch("chatbot.app.chat_endpoint.create_client", new_callable=AsyncMock), \
              patch("chatbot.app.chat_endpoint.RedisSessionStore") as mock_store, \
          patch("chatbot.app.chat_endpoint.OpenAILLMService") as mock_llm, \
-         patch("chatbot.app.chat_endpoint.PgVectorStore"):
+         patch("chatbot.app.chat_endpoint.PgVectorStore"), \
+         patch("chatbot.app.chat_endpoint.SentenceTransformerEmbeddingService"):
         mock_llm_instance = MagicMock()
         mock_llm.return_value = mock_llm_instance
         mock_store.return_value.close = AsyncMock()

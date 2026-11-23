@@ -1,8 +1,10 @@
 import json
+from typing import Any
 
 import openai
 
 from chatbot.app.interfaces import LLMService
+from chatbot.prompts.intent import INTENT_EXTRACTION_PROMPT
 
 
 class OpenAILLMService(LLMService):
@@ -26,12 +28,11 @@ class OpenAILLMService(LLMService):
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Analyze the message and context, extract intent and parameters "
-                        "as JSON."
-                    ),
+                    "content": INTENT_EXTRACTION_PROMPT,
                 },
-                {"role": "user", "content": text},
+                {"role": "user", "content": json.dumps({
+                    "message": text, "context": context,
+                }, ensure_ascii=False)},
             ],
             response_format={"type": "json_object"},
         )

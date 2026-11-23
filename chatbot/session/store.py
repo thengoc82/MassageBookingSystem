@@ -1,5 +1,7 @@
 import logging
 import time
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import redis.asyncio as redis
 from pydantic import BaseModel, Field
@@ -40,6 +42,21 @@ class RedisSessionStore:
         if self._redis:
             await self._redis.aclose()
             self._redis = None
+
+    @asynccontextmanager
+    async def session_lock(self, session_id: str) -> AsyncIterator[None]:
+        """Serialize turns for one session across chatbot workers."""
+        redis_client = await self._get_redis()
+        lock = redis_client.lock(
+            f"chatbot:session-lock:{session_id}", timeout=180, blocking_timeout=10
+        )
+        acquired = await lock.acquire()
+        if not acquired:
+            raise TimeoutError("Conversation is busy")
+        try:
+            yield
+        finally:
+            await lock.release()
 
     async def __aenter__(self) -> "RedisSessionStore":
         return self

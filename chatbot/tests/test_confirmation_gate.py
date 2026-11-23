@@ -1,72 +1,45 @@
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+"""The final booking confirmation remains a server-side write gate."""
+
+from datetime import date, timedelta
 
 import pytest
-from chatbot.app.chat_endpoint import ChatEndpoint
-from chatbot.conversation.state import ConversationPhase, ConversationState, PendingAction
-from chatbot.gateway.client import HTTPClient
-from chatbot.tools.registry import ToolRegistry
-from chatbot.tools.write_tools import CreateBookingTool
+from chatbot.app.chat_endpoint import ChatRequest
+from chatbot.conversation.state import ConversationPhase, ConversationState
+from chatbot.tests.test_customer_experience import setup_journey
+
+
+async def send(endpoint, message: str):
+    return await endpoint.process_message(ChatRequest(message=message, session_id="s1"))
+
+
+async def ready_to_confirm(endpoint) -> None:
+    booking_date = (date.today() + timedelta(days=2)).isoformat()
+    await send(endpoint, f"Book a massage for 2 people on {booking_date} at 5pm for 15m")
+    await send(endpoint, "Shinjuku Store")
+    await send(endpoint, "Full Body Massage")
+    await send(endpoint, "yes")
+    await send(endpoint, "0901234567")
 
 
 @pytest.mark.asyncio
-async def test_confirmation_gate_execution():
-    # Setup
-    mock_client = AsyncMock(spec=HTTPClient)
-    mock_registry = MagicMock(spec=ToolRegistry)
+async def test_confirmation_gate_execution() -> None:
+    endpoint, sessions, _, create_tool = setup_journey([("17:00", 2)])
+    await ready_to_confirm(endpoint)
+    state = ConversationState(**sessions["s1"].conversation_state)
+    assert state.phase == ConversationPhase.CONFIRMING_ACTION
+    assert state.pending_action is not None
+    create_tool.execute.assert_not_awaited()
 
-    # Mock createBooking tool
-    mock_tool = AsyncMock(spec=CreateBookingTool)
-    mock_tool.is_write = True
-    mock_tool.RequestModel = MagicMock()
-    mock_registry.get.return_value = mock_tool
-
-
-    endpoint = ChatEndpoint(http_client=mock_client, tool_registry=mock_registry)
-
-    state = ConversationState()
-    state.phase = ConversationPhase.CONFIRMING_ACTION
-    state.pending_action = PendingAction(
-        tool_name="createBooking",
-        arguments={"shopId": 1, "phoneNumber": "0901234567"},
-        status="pending",
-        timestamp=datetime.now(),
-    )
-
-    # Simulate "confirm" intent
-    response = await endpoint._handle_intent(
-        "confirm_action", "confirm", state, "session1"
-    )
-
-    assert response.success is True
-    assert state.pending_action is None
-    assert state.phase == ConversationPhase.ACTION_COMPLETE
+    confirmed = await send(endpoint, "yes")
+    assert confirmed.phase == ConversationPhase.BOOKING_COMPLETE
+    create_tool.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_confirmation_gate_cancellation():
-    # Setup
-    state = ConversationState()
-    state.phase = ConversationPhase.CONFIRMING_ACTION
-    state.pending_action = PendingAction(
-        tool_name="createBooking",
-        arguments={"shopId": 1},
-        status="pending",
-        timestamp=datetime.now(),
-    )
-
-    endpoint = ChatEndpoint(
-        http_client=AsyncMock(spec=HTTPClient),
-        tool_registry=MagicMock(spec=ToolRegistry)
-    )
-
-
-    # Simulate "cancel" intent
-    response = await endpoint._handle_intent(
-        "cancel_action", "cancel", state, "session1"
-    )
-
-    assert response.success is True
-    assert state.pending_action is None
-    assert state.phase == ConversationPhase.GREETING
-
+async def test_confirmation_gate_cancellation() -> None:
+    endpoint, sessions, _, create_tool = setup_journey([("17:00", 2)])
+    await ready_to_confirm(endpoint)
+    cancelled = await send(endpoint, "no")
+    assert cancelled.phase == ConversationPhase.SEARCHING_SLOTS
+    assert ConversationState(**sessions["s1"].conversation_state).pending_action is None
+    create_tool.execute.assert_not_awaited()

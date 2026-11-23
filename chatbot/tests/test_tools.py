@@ -190,31 +190,42 @@ async def test_get_therapists_with_gender() -> None:
 @pytest.mark.asyncio
 async def test_lookup_booking_by_code() -> None:
     client = HTTPClient()
-    client.get = AsyncMock(side_effect=[
-        {
-            "success": True,
-            "data": {
-                "bookingId": 120,
-                "bookingCode": "BK20260715001",
-                "shopId": 1,
-                "shopName": "Spa A",
-                "phoneNumber": "0123456789",
-                "bookingDate": "2026-07-15",
-                "startTime": "10:00:00",
-                "numberOfPeople": 1,
-                "status": "Booked",
-                "services": [
-                    {"personIndex": 1, "courseId": 1, "courseName": "Thai"}
-                ],
-                "addOns": [],
-            }
-        }
-    ])
+    client.get = AsyncMock(return_value={
+        "success": True,
+        "data": {"data": [{
+            "bookingId": 120,
+            "bookingCode": "BK20260715001",
+            "shopId": 1,
+            "shopName": "Spa A",
+            "phoneNumber": "0123456789",
+            "bookingDate": "2026-07-15",
+            "startTime": "10:00:00",
+            "numberOfPeople": 1,
+            "status": "Booked",
+        }]},
+        "message": "Success",
+    })
     tool = LookupBookingTool(client)
-    request = LookupBookingRequest(bookingCode="BK20260715001")
+    request = LookupBookingRequest(
+        bookingCode="BK20260715001", phoneNumber="0123456789"
+    )
     result = await tool.execute(request)
     assert result.success is True
     assert len(result.data) == 1
+    client.get.assert_awaited_once_with("/bookings", params={"phone": "0123456789"})
+
+
+@pytest.mark.asyncio
+async def test_lookup_code_without_phone_never_queries_all_bookings() -> None:
+    from chatbot.gateway.errors import ChatbotError
+
+    client = HTTPClient()
+    client.get = AsyncMock()
+    with pytest.raises(ChatbotError):
+        await LookupBookingTool(client).execute(
+            LookupBookingRequest(bookingCode="BK20260715001")
+        )
+    client.get.assert_not_awaited()
 
 
 @pytest.mark.asyncio

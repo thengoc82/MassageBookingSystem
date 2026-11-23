@@ -60,8 +60,9 @@ class HTTPClient:
     ) -> dict[str, Any]:
         client = await self._get_client()
         last_exception: Exception | None = None
+        retry_budget = self._config.max_retries if method.upper() == "GET" else 0
 
-        for attempt in range(self._config.max_retries + 1):
+        for attempt in range(retry_budget + 1):
             try:
                 response = await client.request(
                     method=method,
@@ -89,7 +90,7 @@ class HTTPClient:
                 logger.warning(
                     "Request timeout (attempt %d/%d): %s %s",
                     attempt + 1,
-                    self._config.max_retries + 1,
+                    retry_budget + 1,
                     method,
                     path,
                 )
@@ -99,19 +100,19 @@ class HTTPClient:
                 logger.warning(
                     "Connection error (attempt %d/%d): %s %s",
                     attempt + 1,
-                    self._config.max_retries + 1,
+                    retry_budget + 1,
                     method,
                     path,
                 )
 
             except ChatbotError as e:
-                if not e.retryable or attempt >= self._config.max_retries:
+                if not e.retryable or attempt >= retry_budget:
                     raise
                 last_exception = e
                 logger.warning(
                     "Retryable error (attempt %d/%d): %s",
                     attempt + 1,
-                    self._config.max_retries + 1,
+                    retry_budget + 1,
                     e.message,
                 )
 
@@ -120,24 +121,24 @@ class HTTPClient:
                 logger.error(
                     "Unexpected error (attempt %d/%d): %s %s - %s",
                     attempt + 1,
-                    self._config.max_retries + 1,
+                    retry_budget + 1,
                     method,
                     path,
                     e,
                 )
                 break
 
-            if attempt < self._config.max_retries:
+            if attempt < retry_budget:
                 delay = self._calculate_backoff(attempt)
                 await asyncio.sleep(delay)
 
         if isinstance(last_exception, httpx.TimeoutException):
             raise GatewayTimeoutError(
-                f"Request timed out after {self._config.max_retries + 1} attempts"
+                f"Request timed out after {retry_budget + 1} attempts"
             ) from last_exception
         if isinstance(last_exception, httpx.ConnectError):
             raise GatewayConnectionError(
-                f"Connection failed after {self._config.max_retries + 1} attempts"
+                f"Connection failed after {retry_budget + 1} attempts"
             ) from last_exception
         raise last_exception or ChatbotError(
             ChatbotErrorCode.INTERNAL_SERVER_ERROR, "Request failed"

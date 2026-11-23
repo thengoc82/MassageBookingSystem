@@ -23,7 +23,18 @@ type ChatResponse = {
   phase?: string;
   data?: Record<string, unknown>;
   error?: string | null;
-  // Add other fields that the chatbot might return
+  booking_progress?: BookingProgress | null;
+};
+
+export type BookingProgress = {
+  active: boolean;
+  stage: string | null;
+  details: Partial<Record<
+    "shop" | "service" | "date" | "duration" | "people" | "time" |
+    "time_preference" | "phone" | "booking_code", string | number
+  >>;
+  missing: string[];
+  requires_confirmation: boolean;
 };
 
 const CHAT_API_ENDPOINT = `${process.env.NEXT_PUBLIC_CHATBOT_URL || ""}/chat`;
@@ -50,6 +61,7 @@ export const useChat = (userId: string | null) => {
 
   // Confirmation state
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
+  const [bookingProgress, setBookingProgress] = useState<BookingProgress | null>(null);
 
   const addMessage = useCallback(
     (message: Omit<Message, "id" | "timestamp">) => {
@@ -72,7 +84,6 @@ export const useChat = (userId: string | null) => {
       if (!isConfirmation) {
         addMessage({ role: "user", content: text });
       }
-      setPendingConfirmation(false);
 
       try {
         const response = await fetch(CHAT_API_ENDPOINT, {
@@ -94,7 +105,7 @@ export const useChat = (userId: string | null) => {
             } else if (errData && errData.message) {
               errorDetail = errData.message;
             }
-          } catch (jsonErr) {
+          } catch {
             // response was not JSON, use generic message
           }
           throw new Error(errorDetail);
@@ -108,22 +119,27 @@ export const useChat = (userId: string | null) => {
           content: data.message,
         });
 
-        // Preserve phase, session_id, and data
-        // (sessionId is already managed, data is not directly used by useChat but passed through)
-        // phase is used below for pendingConfirmation
-
-        if (data.phase === "confirming_action") {
-          setPendingConfirmation(true);
-        } else if (!data.success && data.message) {
-          // If success is false but it's a valid chat response with a message,
-          // display the message normally (already done by addMessage above).
-          // No additional error UI should be shown for this case.
+        if (data.booking_progress) {
+          setBookingProgress(data.booking_progress);
+          setPendingConfirmation(data.booking_progress.requires_confirmation);
+        } else {
+          setPendingConfirmation(data.phase === "confirming_action");
         }
       } catch (err: unknown) {
         const errorMessage =
           err instanceof Error
             ? err.message
             : `An unknown error occurred: ${String(err)}`;
+        if (isConfirmation || pendingConfirmation) {
+          const guidance = /^(yes|y|confirm|book it)$/i.test(text.trim())
+            ? "I couldn't verify whether your booking was created. Please check your booking by phone before trying again."
+            : "I couldn't verify your response. Please send another message to continue.";
+          setPendingConfirmation(false);
+          setBookingProgress(null);
+          setError(guidance);
+          addMessage({ role: "assistant", content: guidance });
+          return;
+        }
         setError(errorMessage);
         addMessage({
           role: "assistant",
@@ -133,7 +149,7 @@ export const useChat = (userId: string | null) => {
         setIsLoading(false);
       }
     },
-    [addMessage, sessionId, userId]
+    [addMessage, pendingConfirmation, sessionId, userId]
   );
 
   const confirm = useCallback(
@@ -158,6 +174,7 @@ export const useChat = (userId: string | null) => {
     isLoading,
     error,
     pendingConfirmation,
+    bookingProgress,
     confirm,
     cancel,
   };

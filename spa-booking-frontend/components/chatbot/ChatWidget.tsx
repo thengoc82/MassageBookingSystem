@@ -16,9 +16,10 @@ export default function ChatWidget() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50">
-      {isOpen ? (
+      <div hidden={!isOpen}>
         <ChatWindow onClose={() => setIsOpen(false)} />
-      ) : (
+      </div>
+      {!isOpen && (
         <button
           type="button"
           onClick={() => setIsOpen(true)}

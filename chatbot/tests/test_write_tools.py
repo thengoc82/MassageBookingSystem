@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from chatbot.conversation.state import PendingAction
 from chatbot.gateway.client import HTTPClient
-from chatbot.tools.write_tools import CreateBookingTool
+from chatbot.tools.write_tools import CancelBookingTool, CreateBookingTool, ModifyBookingTool
 
 
 @pytest.mark.asyncio
@@ -77,3 +77,47 @@ async def test_create_booking_tool_uses_pos_contract() -> None:
 async def test_duplicate_confirmation_prevention():
     # Setup mock with state checking (conceptual)
     pass
+
+
+@pytest.mark.asyncio
+async def test_modify_booking_uses_supported_patch_route() -> None:
+    from datetime import time
+    from chatbot.models import ModifyBookingRequest
+
+    client = AsyncMock(spec=HTTPClient)
+    client.patch.return_value = {
+        "success": True, "data": {"bookingId": 7}, "message": "Booking updated"
+    }
+    result = await ModifyBookingTool(client).execute(
+        ModifyBookingRequest(bookingId=7, startTime=time(17, 0))
+    )
+    assert result.bookingId == 7
+    client.patch.assert_awaited_once_with(
+        "/bookings/7", json={"startTime": "17:00"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_modify_booking_rejects_fields_flask_ignores() -> None:
+    from chatbot.gateway.errors import ChatbotError
+    from chatbot.models import ModifyBookingRequest
+
+    client = AsyncMock(spec=HTTPClient)
+    with pytest.raises(ChatbotError):
+        await ModifyBookingTool(client).execute(
+            ModifyBookingRequest(bookingId=7, numberOfPeople=3)
+        )
+    client.patch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_booking_uses_patch_cancel_route() -> None:
+    from chatbot.models import CancelBookingRequest
+
+    client = AsyncMock(spec=HTTPClient)
+    client.patch.return_value = {
+        "success": True, "data": {"bookingId": 7}, "message": "Booking cancelled"
+    }
+    result = await CancelBookingTool(client).execute(CancelBookingRequest(bookingId=7))
+    assert result.bookingId == 7
+    client.patch.assert_awaited_once_with("/bookings/7/cancel", json={})

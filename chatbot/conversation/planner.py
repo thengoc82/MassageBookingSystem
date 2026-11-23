@@ -11,19 +11,19 @@ class Planner:
         self.llm_service = llm_service
         self.tool_registry = tool_registry
 
-    def create_plan(self, conversation: Conversation) -> Plan:
+    async def create_plan(self, conversation: Conversation) -> Plan:
         """
         Creates a plan for the conversation.
         The planner should not execute write tools directly.
         """
-        plan = self.llm_service.json_completion(
+        plan = await self.llm_service.json_completion(
             prompt=PLANNER_PROMPT,
             conversation=conversation,
             response_model=Plan,
         )
 
         if plan.tool_name:
-            tool = self.tool_registry.get(plan.tool_name)
+            tool = self.tool_registry.get_tool(plan.tool_name)
             if tool and tool.is_write:
 
                 # This is a write tool, the plan is to propose an action, not execute.

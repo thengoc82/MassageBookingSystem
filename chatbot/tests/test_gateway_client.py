@@ -156,6 +156,17 @@ async def test_post_success(client: HTTPClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_timeout_is_not_retried_without_idempotency(client: HTTPClient) -> None:
+    mock_http_client = AsyncMock()
+    mock_http_client.is_closed = False
+    mock_http_client.request = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+    with patch.object(client, "_get_client", return_value=mock_http_client):
+        with pytest.raises(GatewayTimeoutError):
+            await client.post("/bookings", json={"shopId": 1})
+    mock_http_client.request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_patch_success(client: HTTPClient) -> None:
     mock_response = make_response(200, {"success": True, "data": {}})
     mock_http_client = AsyncMock()
