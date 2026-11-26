@@ -162,6 +162,19 @@ export const api = {
     createTherapist: (shopId: number, data: any) => authFetch(`${API_BASE_URL}/admin/shops/${shopId}/therapists`, { method: 'POST', body: JSON.stringify(data) }),
     getTherapistSchedule: (therapistId: number, dateFrom: string, dateTo: string) =>
       authFetch(`${API_BASE_URL}/admin/therapists/${therapistId}/schedule?dateFrom=${dateFrom}&dateTo=${dateTo}`),
+    getTherapistShifts: (shopId: number, params?: { therapistId?: number; dayOfWeek?: string }) => {
+      const queryString = params ? new URLSearchParams(
+        Object.entries(params).map(([key, value]) => [key, String(value)])
+      ).toString() : '';
+      return authFetch(`${API_BASE_URL}/admin/shops/${shopId}/therapist-shifts${queryString ? `?${queryString}` : ''}`);
+    },
+    getTherapistShift: (shiftId: number) => authFetch(`${API_BASE_URL}/admin/therapist-shifts/${shiftId}`),
+    createTherapistShift: (data: { therapistId: number; dayOfWeek: string; startTime: string; endTime: string; effectiveFrom: string }) =>
+      authFetch(`${API_BASE_URL}/admin/therapist-shifts`, { method: 'POST', body: JSON.stringify(data) }),
+    updateTherapistShift: (shiftId: number, data: { dayOfWeek?: string; startTime?: string; endTime?: string; effectiveFrom?: string }) =>
+      authFetch(`${API_BASE_URL}/admin/therapist-shifts/${shiftId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteTherapistShift: (shiftId: number) =>
+      authFetch(`${API_BASE_URL}/admin/therapist-shifts/${shiftId}`, { method: 'DELETE' }),
 
     getCourses: (shopId: number, params?: any) => {
       const queryString = params ? new URLSearchParams(params).toString() : '';

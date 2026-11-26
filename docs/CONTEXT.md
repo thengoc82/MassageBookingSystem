@@ -25,6 +25,7 @@ A confirmed service reservation. Contains 1+ people, each assigned one or more s
 
 **Shift** (full name: Therapist Shift)
 A recurring weekly time block when a Therapist is scheduled to work (e.g., "Monday 08:00-17:00"). A Therapist can have multiple Shifts across the week.
+`effectiveFrom` is the first date on which the Shift applies; a Shift has no end date. Admins may create, edit, and delete Shifts. Shifts for the same Therapist and weekday cannot overlap, even when their effective dates differ; adjacent time blocks are allowed. Editing or deleting a Shift is rejected if it would leave an assigned future `Booked` or `CheckedIn` Booking without a covering Shift.
 
 **Customer Restriction** (also called "NG List")
 A block preventing a Customer from making new Bookings. Placed by Admin with a reason. Can be active or inactive.
@@ -185,6 +186,7 @@ Availability is **optimistic** — shown as it was at query time. Creation reche
 - Therapist must be on an active Shift covering the Booking time.
 - Therapist must have no overlapping Booking.
 - Slot capacity and creation use distinct active therapists with covering Shifts, excluding therapists occupied by overlapping `Booked` or `CheckedIn` Bookings. Occupancy includes per-guest assignments and the legacy `Booking.therapist_id` pointer without double-counting.
+- A single Shift must cover the whole Booking interval. Changes to Shifts are serialized with booking writes for the same Shop; successful changes affect subsequent availability queries immediately.
 
 ### Service Assignment
 Each person in a Booking receives the same sequence of 1 or more selected main Courses + 0 to N addon Courses. This preserves the existing multiple-main-course booking flow. The selected durations and prices can be submitted as `selectedCourses` in booking preferences because `services` contains only `personIndex` and `courseId`. For a single course, the reserved duration can identify its catalog option; for courses with one option, that option is unambiguous. Otherwise `selectedCourses` is required. Every submitted option must match the active course catalog. The selected durations sum to the reserved duration for each guest; total price is the per-guest course sum multiplied by guest count.

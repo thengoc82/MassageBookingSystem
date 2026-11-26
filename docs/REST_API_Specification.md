@@ -595,11 +595,19 @@ Update therapist.
 
 ---
 
+All therapist shift routes require an admin JWT. Shift rows are recurring weekly rules: `effectiveFrom` is inclusive and there is no end date. A single shift must cover the entire booking interval. Shifts for one therapist and weekday cannot overlap, including when their `effectiveFrom` dates differ; adjacent shifts are valid. Edits and deletion return 409 `SHIFT_BOOKING_CONFLICT` if they would leave an assigned future `Booked` or `CheckedIn` booking uncovered. Successful changes affect subsequent slot availability queries. The existing `GET /api/admin/therapists/{therapist_id}/schedule` continues to return bookings.
+
+SQLite shift writes that time out waiting for the database lock return 409 `SHIFT_CONFLICT` and can be retried.
+
 ### GET /api/admin/shops/{shop_id}/therapist-shifts
 
 Retrieve all shifts for a shop.
 
 **Query Parameters:** `?therapistId=5&dayOfWeek=Monday`
+
+**Response (200):** `data` is an array of `{ "shiftId": 20, "therapistId": 5, "dayOfWeek": "Monday", "startTime": "08:00", "endTime": "17:00", "effectiveFrom": "2026-07-01" }` items.
+
+**Errors:** 400 `VALIDATION_ERROR` for invalid filters, 404 `RESOURCE_NOT_FOUND` for a missing shop.
 
 ---
 
@@ -618,20 +626,22 @@ Create a shift for a therapist.
 }
 ```
 
-**Validation:** therapistId required, dayOfWeek required (Monday-Sunday), startTime < endTime.
+**Validation:** all five fields are required. `therapistId` is a positive integer; `dayOfWeek` is Monday–Sunday; times use 24-hour `HH:MM` and `startTime < endTime`; `effectiveFrom` is a valid `YYYY-MM-DD` date.
 
 **Response (201):**
 ```json
-{ "success": true, "data": { "shiftId": 20 }, "message": "Shift created." }
+{ "success": true, "data": { "shiftId": 20, "therapistId": 5, "dayOfWeek": "Monday", "startTime": "08:00", "endTime": "17:00", "effectiveFrom": "2026-07-01" }, "message": "Shift created" }
 ```
 
-**Errors:** 404 THERAPIST_NOT_FOUND, 409 SHIFT_OVERLAP
+**Errors:** 400 `VALIDATION_ERROR`, 404 `RESOURCE_NOT_FOUND` for a missing therapist, 409 `SHIFT_OVERLAP`.
 
 ---
 
 ### GET /api/admin/therapist-shifts/{shift_id}
 
 Retrieve shift detail.
+
+**Response (200):** Same shift object as the create response. **Errors:** 404 `RESOURCE_NOT_FOUND`.
 
 ---
 
@@ -644,7 +654,19 @@ Update shift.
 { "startTime": "09:00", "endTime": "18:00" }
 ```
 
-**Errors:** 404 SHIFT_NOT_FOUND, 409 SHIFT_OVERLAP
+Any nonempty subset of `dayOfWeek`, `startTime`, `endTime`, and `effectiveFrom` may be supplied. `therapistId` is immutable. The response returns the updated shift object.
+
+**Errors:** 400 `VALIDATION_ERROR`, 404 `RESOURCE_NOT_FOUND`, 409 `SHIFT_OVERLAP` or `SHIFT_BOOKING_CONFLICT`.
+
+---
+
+### DELETE /api/admin/therapist-shifts/{shift_id}
+
+Delete a weekly shift. A shift covering a future assigned booking cannot be removed unless another shift still covers the entire booking interval.
+
+**Response (200):** `{ "success": true, "data": { "shiftId": 20 }, "message": "Shift deleted" }`
+
+**Errors:** 404 `RESOURCE_NOT_FOUND`, 409 `SHIFT_BOOKING_CONFLICT`.
 
 ---
 
@@ -849,6 +871,7 @@ GET    /api/admin/shops/{shop_id}/therapist-shifts
 POST   /api/admin/therapist-shifts
 GET    /api/admin/therapist-shifts/{shift_id}
 PATCH  /api/admin/therapist-shifts/{shift_id}
+DELETE /api/admin/therapist-shifts/{shift_id}
 
 GET    /api/admin/customer-restrictions
 POST   /api/admin/customer-restrictions

@@ -6,7 +6,7 @@ This roadmap preserves the order, dependencies, risks, and verification criteria
 
 ## Decisions and corrections to the review
 
-- **Tasks 1–3 are complete.** Task 1 added authoritative creation validation in commit `5d9a027`; Task 2 made SQLite creation atomic and aligned therapist capacity in commit `46f4151`; Task 3 repaired booking modification. The last recorded Flask API run was **48 passed**. See [project status](PROJECT_STATUS.md), [Task 3 record](progress/task-03.md), and [ADR 0003](adr/0003-atomic-therapist-assignment.md). Earlier progress records describe later tasks as unfinished because they are historical records.
+- **Tasks 1–3 are complete.** Task 1 added authoritative creation validation in commit `5d9a027`; Task 2 made SQLite creation atomic and aligned therapist capacity in commit `46f4151`; Task 3 repaired booking modification. The latest Flask API run was **63 passed** after Task 5. See [project status](PROJECT_STATUS.md), [Task 3 record](progress/task-03.md), and [ADR 0003](adr/0003-atomic-therapist-assignment.md). Earlier progress records describe later tasks as unfinished because they are historical records.
 - **Keep the accepted course rule.** A guest receives the same sequence of **one or more** main courses and zero or more add-ons as every other guest. Selected durations must total the reserved duration. [CONTEXT.md](CONTEXT.md) and [the API specification](REST_API_Specification.md) are the current contract; report §3.5's “exactly one main course” statement is outdated. `selectedCourses` is needed when catalog options are ambiguous.
 - **Keep optimistic availability.** Slots are snapshots; creation makes the final decision. SQLite uses `BEGIN IMMEDIATE`, not the row-level lock assumed in the report and the original ADR 0002 wording. The file-backed concurrency test covers creation through `BookingService.create`; a live non-SQLite concurrency result is still missing.
 - **Reconcile two scenario expectations.** Under the accepted API rule, a group request with a specific therapist is rejected without creating a booking; a separate request without that preference can receive automatic assignments. Report TC-02 combines those outcomes as if they occur in one request. TC-04's one-confirmed-booking condition has a backend test, while offering alternative slots remains Task 8.
@@ -58,15 +58,17 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** Development terminal code delivery grants a short-lived customer token for local booking lookup and writes. Admin and assigned therapist JWTs retain staff access. The public availability endpoint no longer returns booking details; the admin Gantt uses a protected route. See [ADR 0004](adr/0004-phone-verified-booking-access.md) and [Task 4 record](progress/task-04.md). Terminal delivery cannot prove phone ownership; deployed customer access remains disabled until an out-of-band provider is added.
 
-### 5. Add weekly therapist shift management — planned
+### 5. Add weekly therapist shift management — completed
 
 **Depends on:** Task 2's shift-aware availability and Task 4's staff access boundary.
 
-**Work:** Add JWT-protected list/create/edit shift routes around [TherapistShift](../spa-booking-api/app/models/therapist_shift.py), then add controls to [admin schedules](../spa-booking-frontend/app/admin/schedules/page.tsx) via `lib/api.ts`. Keep the existing therapist schedule endpoint, which returns bookings, intact.
+**Work:** Add JWT-protected list/create/edit/delete shift routes around [TherapistShift](../spa-booking-api/app/models/therapist_shift.py), then add controls to [admin schedules](../spa-booking-frontend/app/admin/schedules/page.tsx) via `lib/api.ts`. Keep the existing therapist schedule endpoint, which returns bookings, intact.
 
 **Risk:** Editing a shift can affect future capacity and existing bookings. Validate overlapping shifts, effective dates, and the effect of edits on affected bookings rather than treating the current booking schedule as shift management.
 
-**Verify:** Create, edit, and list weekly shifts; reject invalid overlaps; confirm that affected dates change slot availability while the existing booking schedule response remains compatible.
+**Verify:** Create, edit, list, and delete weekly shifts; reject invalid overlaps and changes that uncover future bookings; confirm that affected dates change slot availability while the existing booking schedule response remains compatible.
+
+**Implementation:** Admin JWT protected shift list, detail, create, edit, and delete routes use the existing `TherapistShift` model. The admin schedules page manages shifts and still shows bookings. Shift writes share booking's shop lock, and edits or deletion that uncover future assigned bookings are rejected. See [Task 5 record](progress/task-05.md). No migration was needed.
 
 ### 6. Add NG List management — planned
 
