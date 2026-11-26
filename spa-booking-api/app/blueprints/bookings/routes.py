@@ -58,7 +58,7 @@ def get_all_bookings():
 
 @bookings_bp.route('/<int:booking_id>', methods=['PATCH'])
 def update_booking(booking_id):
-    data = request.get_json()
+    data = request.get_json(silent=True)
     booking = BookingService.update(booking_id, data)
 
     return success_response({

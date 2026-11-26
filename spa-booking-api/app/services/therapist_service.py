@@ -9,9 +9,9 @@ from app.models.therapist_shift import TherapistShift
 class TherapistService:
 
     @staticmethod
-    def find_available_therapists(shop_id, date, start_time, end_time):
+    def find_available_therapists(shop_id, date, start_time, end_time, exclude_booking_id=None):
         available_ids = TherapistService._available_therapist_ids(
-            shop_id, date, start_time, end_time
+            shop_id, date, start_time, end_time, exclude_booking_id
         )
         if not available_ids:
             return []
@@ -26,7 +26,7 @@ class TherapistService:
         ))
 
     @staticmethod
-    def _available_therapist_ids(shop_id, date, start_time, end_time):
+    def _available_therapist_ids(shop_id, date, start_time, end_time, exclude_booking_id=None):
         day_of_week = date.strftime('%A')
         covering_ids = {
             therapist_id for (therapist_id,) in db.session.query(
@@ -43,13 +43,15 @@ class TherapistService:
         if not covering_ids:
             return set()
 
-        overlap = (
+        overlap = [
             Booking.shop_id == shop_id,
             Booking.booking_date == date,
             Booking.status.in_(['Booked', 'CheckedIn']),
             Booking.start_time < end_time,
             Booking.end_time > start_time,
-        )
+        ]
+        if exclude_booking_id is not None:
+            overlap.append(Booking.id != exclude_booking_id)
         # The legacy pointer and per-guest rows describe assignments to the same
         # booking. A set counts each occupied therapist only once.
         occupied_ids = {

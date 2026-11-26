@@ -287,15 +287,18 @@ class BookingService:
         return Shop.query.filter_by(id=shop_id).with_for_update().first()
 
     @staticmethod
-    def _rank_by_daily_workload(therapists, date):
+    def _rank_by_daily_workload(therapists, date, exclude_booking_id=None):
         workload = {therapist.id: 0 for therapist in therapists}
-        bookings = db.session.query(Booking).options(
+        query = db.session.query(Booking).options(
             selectinload(Booking.booking_therapists)
         ).filter(
             Booking.shop_id == therapists[0].shop_id,
             Booking.booking_date == date,
             Booking.status.in_(['Booked', 'CheckedIn']),
-        ).all()
+        )
+        if exclude_booking_id is not None:
+            query = query.filter(Booking.id != exclude_booking_id)
+        bookings = query.all()
         for booking in bookings:
             minutes = max(0, int((
                 datetime.combine(date, booking.end_time)
@@ -372,22 +375,189 @@ class BookingService:
 
     @staticmethod
     def update(booking_id, data):
-        booking = Booking.query.get(booking_id)
-        if not booking:
-            raise ResourceNotFound('Booking')
+        if not isinstance(data, dict) or not data:
+            raise ValidationError('A nonempty JSON booking update is required')
+        allowed = {
+            'bookingDate', 'startTime', 'duration', 'courseId', 'services',
+            'addOns', 'selectedCourses', 'therapistId',
+            'therapistPreferenceType', 'therapistPreferenceValue',
+        }
+        if set(data) - allowed:
+            raise ValidationError('Booking update contains unsupported fields')
 
-        if booking.status != 'Booked':
-            raise BusinessRuleViolation('INVALID_MODIFY_STATUS', 'Only Booked bookings can be modified')
+        try:
+            # Use the same shop lock as creation. SQLite must lock before the
+            # first read; on other databases the shop and booking rows are locked.
+            if db.engine.dialect.name == 'sqlite':
+                db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+                booking = db.session.get(Booking, booking_id)
+                shop = db.session.get(Shop, booking.shop_id) if booking else None
+            else:
+                shop_id = db.session.query(Booking.shop_id).filter_by(id=booking_id).scalar()
+                shop = BookingService._lock_shop_for_booking(shop_id) if shop_id else None
+                booking = (Booking.query.filter_by(id=booking_id)
+                           .with_for_update().populate_existing().first()) if shop else None
+            if not booking:
+                raise ResourceNotFound('Booking')
+            if booking.status != 'Booked':
+                raise BusinessRuleViolation('INVALID_MODIFY_STATUS', 'Only Booked bookings can be modified')
 
-        if 'startTime' in data:
-            booking.start_time = datetime.strptime(data['startTime'], '%H:%M').time()
+            try:
+                booking_date = (datetime.strptime(data['bookingDate'], '%Y-%m-%d').date()
+                                if 'bookingDate' in data else booking.booking_date)
+                start_time = (datetime.strptime(data['startTime'], '%H:%M').time()
+                              if 'startTime' in data else booking.start_time)
+            except (TypeError, ValueError):
+                raise ValidationError('bookingDate must be YYYY-MM-DD and startTime must be HH:MM')
+            if booking_date < datetime.utcnow().date():
+                raise ValidationError('bookingDate cannot be in the past')
 
-        if 'therapistId' in data:
-            booking.therapist_id = data['therapistId']
+            saved_duration = int((
+                datetime.combine(booking.booking_date, booking.end_time)
+                - datetime.combine(booking.booking_date, booking.start_time)
+            ).total_seconds() // 60)
+            duration = data.get('duration', saved_duration)
+            if type(duration) is not int or duration <= 0:
+                raise ValidationError('duration must be a positive integer')
+            try:
+                end_datetime = datetime.combine(booking_date, start_time) + timedelta(minutes=duration)
+            except OverflowError:
+                raise ValidationError('duration or bookingDate is out of range')
+            end_time = end_datetime.time()
+            if (not shop or shop.status != 'Open' or start_time < shop.open_time
+                    or end_datetime.date() != booking_date or end_time > shop.close_time):
+                raise BusinessRuleViolation('SHOP_CLOSED', 'Shop is not open for the requested time')
 
-        db.session.commit()
+            try:
+                preferences = json.loads(booking.preferences_json) if booking.preferences_json else {}
+            except (TypeError, json.JSONDecodeError):
+                preferences = {}
+            if not isinstance(preferences, dict):
+                preferences = {}
+            services = ([{'personIndex': s.person_index, 'courseId': s.course_id}
+                         for s in sorted(booking.services, key=lambda item: item.id)])
+            addons = ([{'personIndex': a.person_index, 'courseId': a.course_id}
+                       for a in sorted(booking.addons, key=lambda item: item.id)])
+            selection = {
+                'services': data.get('services', services),
+                'addOns': data.get('addOns', addons),
+            }
+            if 'courseId' in data and 'services' not in data:
+                selection['services'] = None
+                selection['courseId'] = data['courseId']
+            if 'selectedCourses' in data:
+                selection['selectedCourses'] = data['selectedCourses']
+            elif 'selectedCourses' in preferences:
+                # Keep saved options for retained courses, not removed ones.
+                selected_ids = {item.get('courseId') for items in
+                                (selection['services'] or [], selection['addOns'] or [])
+                                for item in items if isinstance(item, dict)}
+                saved_options = preferences['selectedCourses']
+                if isinstance(saved_options, list):
+                    selection['selectedCourses'] = [option for option in saved_options
+                        if isinstance(option, dict) and option.get('courseId') in selected_ids]
+            service_data, addon_data = BookingService._validate_course_selection(
+                selection, booking.shop_id, booking.number_of_people, duration
+            )
 
-        return booking
+            preference_type = data.get('therapistPreferenceType')
+            preference_value = data.get('therapistPreferenceValue')
+            if 'therapistId' in data:
+                if 'therapistPreferenceType' in data or 'therapistPreferenceValue' in data:
+                    raise ValidationError('Use either therapistId or therapist preference fields')
+                preference_type = 'specific' if data['therapistId'] is not None else 'no_preference'
+                preference_value = data['therapistId']
+            if preference_type not in (None, 'specific', 'gender', 'no_preference'):
+                raise ValidationError('Invalid therapistPreferenceType')
+            if booking.number_of_people > 1 and preference_type in ('specific', 'gender'):
+                raise ValidationError('Therapist preferences are only available for one guest')
+            if preference_type == 'specific':
+                if (type(preference_value) not in (int, str)
+                        or not str(preference_value).isdigit() or int(preference_value) <= 0):
+                    raise ValidationError('Invalid therapist ID')
+                preference_value = int(preference_value)
+            elif preference_type == 'gender':
+                if preference_value not in ('Male', 'Female'):
+                    raise ValidationError('Invalid therapist gender')
+            elif preference_value is not None:
+                raise ValidationError('therapistPreferenceValue requires a therapist preference')
+
+            available = TherapistService.find_available_therapists(
+                booking.shop_id, booking_date, start_time, end_time,
+                exclude_booking_id=booking.id,
+            )
+            available_by_id = {therapist.id: therapist for therapist in available}
+            if preference_type == 'specific':
+                chosen = [available_by_id[preference_value]] if preference_value in available_by_id else []
+            elif preference_type == 'gender':
+                candidates = [t for t in available if t.gender == preference_value]
+                chosen = (BookingService._rank_by_daily_workload(
+                    candidates, booking_date, booking.id)[:1] if candidates else [])
+            else:
+                # Keep valid assignments stable. Replacements use Task 2's
+                # distinct, least-loaded ordering.
+                assigned_ids = [bt.therapist_id for bt in
+                                sorted(booking.booking_therapists, key=lambda bt: bt.person_index)]
+                if not assigned_ids and booking.number_of_people == 1 and booking.therapist_id:
+                    assigned_ids = [booking.therapist_id]
+                if (len(assigned_ids) == booking.number_of_people
+                        and len(set(assigned_ids)) == booking.number_of_people
+                        and all(tid in available_by_id for tid in assigned_ids)):
+                    chosen = [available_by_id[tid] for tid in assigned_ids]
+                else:
+                    chosen = (BookingService._rank_by_daily_workload(
+                        available, booking_date, booking.id)[:booking.number_of_people]
+                        if available else [])
+            if len(chosen) < booking.number_of_people:
+                if booking.number_of_people > 1:
+                    raise BusinessRuleViolation('INSUFFICIENT_THERAPISTS',
+                        f'Need {booking.number_of_people} therapists, only {len(available)} available')
+                raise BusinessRuleViolation('SLOT_UNAVAILABLE',
+                    'Requested therapist is no longer available at this time')
+
+            booking.booking_date = booking_date
+            booking.start_time = start_time
+            booking.end_time = end_time
+            booking.therapist_id = chosen[0].id
+            if 'services' in data or 'courseId' in data:
+                booking.services = [BookingServiceModel(person_index=s['personIndex'], course_id=s['courseId'])
+                                    for s in service_data]
+            if 'addOns' in data:
+                booking.addons = [BookingAddon(person_index=a['personIndex'], course_id=a['courseId'])
+                                  for a in addon_data]
+            existing_assignments = {bt.person_index: bt for bt in booking.booking_therapists}
+            for person_index, therapist in enumerate(chosen, start=1):
+                assignment = existing_assignments.pop(person_index, None)
+                if assignment:
+                    assignment.therapist_id = therapist.id
+                else:
+                    booking.booking_therapists.append(BookingTherapist(
+                        person_index=person_index, therapist_id=therapist.id
+                    ))
+            for assignment in existing_assignments.values():
+                booking.booking_therapists.remove(assignment)
+            if 'selectedCourses' in data or 'services' in data or 'courseId' in data or 'addOns' in data:
+                if 'selectedCourses' in selection:
+                    preferences['selectedCourses'] = selection['selectedCourses']
+                else:
+                    preferences.pop('selectedCourses', None)
+                booking.preferences_json = json.dumps(preferences, ensure_ascii=False) if preferences else None
+
+            db.session.commit()
+            return booking
+        except APIError:
+            db.session.rollback()
+            raise
+        except OperationalError as error:
+            db.session.rollback()
+            if db.engine.dialect.name == 'sqlite' and any(
+                marker in str(error.orig).lower() for marker in ('locked', 'busy')
+            ):
+                raise APIError('BOOKING_CONFLICT', 'Booking capacity is busy; please try again', 409)
+            raise
+        except Exception:
+            db.session.rollback()
+            raise
 
     @staticmethod
     def cancel(booking_id):

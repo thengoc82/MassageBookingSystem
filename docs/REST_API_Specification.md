@@ -363,7 +363,7 @@ Retrieve full booking detail.
 
 ### PATCH /api/bookings/{booking_id}
 
-Update booking. Accepts partial update for changeable fields.
+Update a `Booked` booking. The request is a nonempty JSON object containing only fields to change. Omitted fields retain their saved values.
 
 **Request:**
 ```json
@@ -374,22 +374,30 @@ Update booking. Accepts partial update for changeable fields.
 }
 ```
 
+**Supported fields:** `bookingDate` (`YYYY-MM-DD`), `startTime` (`HH:MM`), `duration` (positive minutes), `services`, `addOns`, `selectedCourses`, `courseId` (single-main-course fallback), and either legacy `therapistId` or `therapistPreferenceType` / `therapistPreferenceValue`. `therapistId: null` removes the explicit preference; an existing eligible assignment may remain. `numberOfPeople`, `shopId`, `phoneNumber`, and `status` cannot be changed through this endpoint. Group bookings cannot request a specific therapist or gender.
+
 **Business Rules:**
 - Only `Booked` status can be modified
-- Time/service changes trigger slot re-validation
-- Phone number cannot be changed
+- Changing time or duration recalculates `endTime`. The complete interval must fit within one day's shop hours.
+- The effective course selection follows the same active-course, per-guest, catalog-option, and duration rules as creation.
+- Every modification rechecks shift coverage and overlapping `Booked` / `CheckedIn` assignments in a transaction. The booking being edited does not conflict with itself. Existing eligible assignments are retained; replacements follow the creation workload ranking, and groups receive distinct therapists.
+- A rejected modification leaves the original booking, course rows, therapist rows, and preferences unchanged.
 
 **Response (200):**
 ```json
-{ "success": true, "data": { "bookingId": 120, "status": "Booked" }, "message": "Booking updated." }
+{ "success": true, "data": { "bookingId": 120, "status": "Booked" }, "message": "Booking updated" }
 ```
 
 **Errors:**
-| HTTP | Code                    | Condition                     |
-| ---- | ----------------------- | ----------------------------- |
-| 404  | BOOKING_NOT_FOUND       | Not found                     |
-| 422  | INVALID_MODIFY_STATUS   | Only Booked can be modified   |
-| 409  | TIME_SLOT_UNAVAILABLE   | New time conflicts            |
+| HTTP | Code                    | Condition                                   |
+| ---- | ----------------------- | ------------------------------------------- |
+| 400  | VALIDATION_ERROR        | Invalid JSON, field, course selection, or duration |
+| 404  | RESOURCE_NOT_FOUND      | Booking or selected course not found         |
+| 422  | INVALID_MODIFY_STATUS   | Only Booked can be modified                  |
+| 422  | SHOP_CLOSED             | Shop is closed or interval is outside hours  |
+| 422  | SLOT_UNAVAILABLE        | No eligible therapist for a single guest    |
+| 422  | INSUFFICIENT_THERAPISTS | Too few distinct therapists for a group     |
+| 409  | BOOKING_CONFLICT        | SQLite write lock timed out                  |
 
 ---
 
