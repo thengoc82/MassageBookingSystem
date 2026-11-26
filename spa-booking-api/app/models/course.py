@@ -25,7 +25,7 @@ class Course(db.Model):
 
     def get_durations(self):
         if not self.durations_json:
-            if self.duration and self.price:
+            if self.duration is not None and self.price is not None:
                 return [{'duration': self.duration, 'price': self.price}]
             return []
         try:

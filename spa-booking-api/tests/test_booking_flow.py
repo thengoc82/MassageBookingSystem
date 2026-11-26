@@ -33,7 +33,7 @@ def test_create_booking_rejects_missing_phone(client, sample_shop, sample_course
     course = sample_courses[0]
     payload = {
         'shopId': sample_shop.id,
-        'bookingDate': '2026-07-20',
+        'bookingDate': (datetime.utcnow().date() + timedelta(days=7)).isoformat(),
         'startTime': '10:00',
         'duration': course.duration,
         'numberOfPeople': 1,
@@ -63,7 +63,7 @@ def test_create_booking_fails_for_blocked_customer(client, sample_shop, sample_c
     payload = {
         'phoneNumber': '0999999999',
         'shopId': sample_shop.id,
-        'bookingDate': '2026-07-20',
+        'bookingDate': (datetime.utcnow().date() + timedelta(days=7)).isoformat(),
         'startTime': '10:00',
         'duration': course.duration,
         'numberOfPeople': 1,
@@ -78,7 +78,7 @@ def test_create_booking_fails_for_blocked_customer(client, sample_shop, sample_c
 def test_available_therapists_returns_200(client, sample_shop, sample_therapists):
     """GET /api/shops/{id}/available-therapists should return 200 with therapist list."""
     resp = client.get(f'/api/shops/{sample_shop.id}/available-therapists', query_string={
-        'date': '2026-07-20',
+        'date': (datetime.utcnow().date() + timedelta(days=7)).isoformat(),
         'startTime': '10:00',
         'duration': 60
     })
@@ -94,7 +94,7 @@ def test_available_therapists_returns_200(client, sample_shop, sample_therapists
 def test_get_available_slots_returns_capacity(client, sample_shop, sample_therapists):
     """GET /api/shops/{id}/available-slots should return slots with correct capacity."""
     resp = client.get(f'/api/shops/{sample_shop.id}/available-slots', query_string={
-        'date': '2026-07-30',
+        'date': (datetime.utcnow().date() + timedelta(days=7)).isoformat(),
         'duration': 60,
         'numberOfPeople': 2
     })
@@ -109,7 +109,7 @@ def test_get_available_slots_returns_capacity(client, sample_shop, sample_therap
 def test_get_available_slots_with_therapists(client, sample_shop, sample_therapists):
     """GET /api/shops/{id}/available-slots?show_therapists=true returns all slots with therapist-level availability."""
     resp = client.get(f'/api/shops/{sample_shop.id}/available-slots', query_string={
-        'date': '2026-07-30',
+        'date': (datetime.utcnow().date() + timedelta(days=7)).isoformat(),
         'duration': 60,
         'numberOfPeople': 1,
         'show_therapists': 'true'

@@ -6,21 +6,24 @@ from datetime import datetime, timedelta
 from app.extensions import db
 from app.models.booking import Booking, BookingAddon, BookingTherapist
 from app.models.booking import BookingService as BookingServiceModel
+from app.models.course import Course
+from app.models.shop import Shop
 from app.models.therapist import Therapist
 from app.services.customer_service import CustomerService
+from app.services.therapist_service import TherapistService
 from app.utils.errors import BusinessRuleViolation, ResourceNotFound, ValidationError
 
 
 class BookingService:
     @staticmethod
     def create(data):
-        phone_number = data.get('phoneNumber')
-        if not phone_number:
-            raise ValidationError('phoneNumber is required')
+        if not isinstance(data, dict):
+            raise ValidationError('A JSON booking object is required')
 
-        eligibility = CustomerService.check_eligibility(phone_number)
-        if not eligibility['isEligible']:
-            raise BusinessRuleViolation('CUSTOMER_BLOCKED', 'Customer on NG List')
+        phone_number = data.get('phoneNumber')
+        if not isinstance(phone_number, str) or not phone_number.strip():
+            raise ValidationError('phoneNumber is required')
+        phone_number = phone_number.strip()
 
         shop_id = data.get('shopId')
         booking_date_str = data.get('bookingDate')
@@ -30,16 +33,57 @@ class BookingService:
 
         if not all([shop_id, booking_date_str, start_time_str, duration]):
             raise ValidationError('shopId, bookingDate, startTime, and duration are required')
+        if type(shop_id) is not int or shop_id <= 0:
+            raise ValidationError('shopId must be a positive integer')
+        if type(duration) is not int or duration <= 0:
+            raise ValidationError('duration must be a positive integer')
+        if type(number_of_people) is not int or number_of_people <= 0:
+            raise ValidationError('numberOfPeople must be a positive integer')
 
-        booking_date = datetime.strptime(booking_date_str, '%Y-%m-%d').date()
-        start_time = datetime.strptime(start_time_str, '%H:%M').time()
+        try:
+            booking_date = datetime.strptime(booking_date_str, '%Y-%m-%d').date()
+            start_time = datetime.strptime(start_time_str, '%H:%M').time()
+        except (TypeError, ValueError):
+            raise ValidationError('bookingDate must be YYYY-MM-DD and startTime must be HH:MM')
+
+        if booking_date < datetime.utcnow().date():
+            raise ValidationError('bookingDate cannot be in the past')
 
         start_datetime = datetime.combine(booking_date, start_time)
         end_datetime = start_datetime + timedelta(minutes=duration)
         end_time = end_datetime.time()
 
+        shop = db.session.get(Shop, shop_id)
+        if not shop:
+            raise ResourceNotFound('Shop')
+        if (shop.status != 'Open' or start_time < shop.open_time
+                or end_datetime.date() != booking_date or end_time > shop.close_time):
+            raise BusinessRuleViolation('SHOP_CLOSED', 'Shop is not open for the requested time')
+
         therapist_preference_type = data.get('therapistPreferenceType')
         therapist_preference_value = data.get('therapistPreferenceValue')
+        if therapist_preference_type not in (None, 'no_preference', 'specific', 'gender'):
+            raise ValidationError('Invalid therapistPreferenceType')
+        if number_of_people > 1 and therapist_preference_type in ('specific', 'gender'):
+            raise ValidationError('Therapist preferences are only available for one guest')
+        if therapist_preference_type == 'specific':
+            if (type(therapist_preference_value) not in (int, str)
+                    or not str(therapist_preference_value).isdigit()
+                    or int(therapist_preference_value) <= 0):
+                raise ValidationError('Invalid therapist ID')
+        elif therapist_preference_type == 'gender':
+            if therapist_preference_value not in ('Male', 'Female'):
+                raise ValidationError('Invalid therapist gender')
+        elif therapist_preference_value is not None:
+            raise ValidationError('therapistPreferenceValue requires a therapist preference')
+
+        service_data, addon_data = BookingService._validate_course_selection(
+            data, shop_id, number_of_people, duration
+        )
+
+        eligibility = CustomerService.check_eligibility(phone_number)
+        if not eligibility['isEligible']:
+            raise BusinessRuleViolation('CUSTOMER_BLOCKED', 'Customer on NG List')
 
         try:
 
@@ -58,7 +102,8 @@ class BookingService:
                     if not therapist:
                         raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'Requested therapist is no longer available')
 
-                    if not BookingService._is_therapist_free(therapist.id, booking_date, start_time, end_time):
+                    if (not TherapistService._has_shift_coverage(therapist.id, booking_date, start_time, end_time)
+                            or not BookingService._is_therapist_free(therapist.id, booking_date, start_time, end_time)):
                         raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'Requested therapist is no longer available at this time')
 
                     assigned_therapist = therapist
@@ -81,9 +126,10 @@ class BookingService:
                 therapist = BookingService._lock_least_loaded_therapist(
                     shop_id, booking_date, start_time, end_time
                 )
+                if not therapist:
+                    raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'No therapist is available at this time')
                 assigned_therapist = therapist
-                if therapist:
-                    assigned_therapists.append((1, therapist))
+                assigned_therapists.append((1, therapist))
 
             else:
                 # For multi-person bookings (2-3), use random assignment without replacement
@@ -133,17 +179,6 @@ class BookingService:
                 )
                 db.session.add(bt)
 
-            if not data.get('services'):
-                course_id = data.get('courseId')
-                if not course_id:
-                    raise ValidationError('courseId or services is required')
-                service_data = [{
-                    'personIndex': i + 1,
-                    'courseId': course_id
-                } for i in range(number_of_people)]
-            else:
-                service_data = data.get('services', [])
-
             for service in service_data:
                 booking_service = BookingServiceModel(
                     booking_id=booking.id,
@@ -152,7 +187,7 @@ class BookingService:
                 )
                 db.session.add(booking_service)
 
-            for addon in data.get('addOns', []):
+            for addon in addon_data:
                 booking_addon = BookingAddon(
                     booking_id=booking.id,
                     person_index=addon['personIndex'],
@@ -181,6 +216,80 @@ class BookingService:
             raise BusinessRuleViolation('BOOKING_FAILED', f'Failed to create booking: {str(e)}')
 
     @staticmethod
+    def _validate_course_selection(data, shop_id, number_of_people, duration):
+        services = data.get('services')
+        if not services:
+            course_id = data.get('courseId')
+            if type(course_id) is not int or course_id <= 0:
+                raise ValidationError('courseId or services is required')
+            services = [{'personIndex': i, 'courseId': course_id} for i in range(1, number_of_people + 1)]
+        addons = data.get('addOns') or []
+        if not isinstance(services, list) or not isinstance(addons, list):
+            raise ValidationError('services and addOns must be arrays')
+
+        per_person = {i: {'main': [], 'addon': []} for i in range(1, number_of_people + 1)}
+        for items, kind in ((services, 'main'), (addons, 'addon')):
+            for item in items:
+                if not isinstance(item, dict) or type(item.get('personIndex')) is not int or type(item.get('courseId')) is not int:
+                    raise ValidationError('Each selected course needs integer personIndex and courseId')
+                person_index, course_id = item['personIndex'], item['courseId']
+                if person_index not in per_person or course_id <= 0:
+                    raise ValidationError('Selected course has an invalid personIndex or courseId')
+                if course_id in per_person[person_index][kind]:
+                    raise ValidationError('A course cannot be selected twice for one guest')
+                per_person[person_index][kind].append(course_id)
+
+        first = per_person[1]
+        if not first['main']:
+            raise ValidationError('Each guest needs at least one main course')
+        if any(selection != first for selection in per_person.values()):
+            raise ValidationError('Each guest must have the same courses and add-ons')
+
+        selected_options = data.get('selectedCourses')
+        if selected_options is not None and not isinstance(selected_options, list):
+            raise ValidationError('selectedCourses must be an array')
+        options_by_id = {}
+        for option in selected_options or []:
+            if not isinstance(option, dict) or type(option.get('courseId')) is not int or type(option.get('duration')) is not int or type(option.get('price')) is not int:
+                raise ValidationError('selectedCourses needs integer courseId, duration, and price')
+            course_id = option['courseId']
+            if course_id in options_by_id or option['duration'] <= 0 or option['price'] < 0:
+                raise ValidationError('Invalid selectedCourses option')
+            options_by_id[course_id] = option
+
+        selected_ids = first['main'] + first['addon']
+        if set(options_by_id) - set(selected_ids):
+            raise ValidationError('selectedCourses contains a course not selected for booking')
+
+        total_duration = 0
+        for kind in ('main', 'addon'):
+            for course_id in first[kind]:
+                course = db.session.get(Course, course_id)
+                if not course:
+                    raise ResourceNotFound('Course')
+                if course.shop_id != shop_id or course.course_type != kind or course.status != 'active':
+                    raise ValidationError('Selected course is unavailable at this shop or has the wrong type')
+                catalog_options = [option for option in course.get_durations()
+                                   if type(option.get('duration')) is int and option['duration'] > 0
+                                   and type(option.get('price')) is int and option['price'] >= 0]
+                chosen = options_by_id.get(course_id)
+                if chosen:
+                    if not any(option['duration'] == chosen['duration'] and option['price'] == chosen['price'] for option in catalog_options):
+                        raise ValidationError('Selected course duration or price is no longer available')
+                    selected_duration = chosen['duration']
+                elif len(catalog_options) == 1:
+                    selected_duration = catalog_options[0]['duration']
+                elif len(selected_ids) == 1 and any(option['duration'] == duration for option in catalog_options):
+                    selected_duration = duration
+                else:
+                    raise ValidationError('selectedCourses is required to identify course durations')
+                total_duration += selected_duration
+
+        if total_duration != duration:
+            raise ValidationError('Selected course durations must equal the reserved duration')
+        return services, addons
+
+    @staticmethod
     def _lock_least_loaded_therapist(shop_id, date, start_time, end_time):
         therapist = db.session.query(
             Therapist,
@@ -200,15 +309,13 @@ class BookingService:
         ).group_by(Therapist.id).order_by(
             db.text('workload ASC'),
             Therapist.id.asc()
-        ).with_for_update(skip_locked=True).first()
+        ).with_for_update(skip_locked=True).all()
 
-        if not therapist:
-            return None
-
-        if not BookingService._is_therapist_free(therapist.Therapist.id, date, start_time, end_time):
-            return None
-
-        return therapist.Therapist
+        for candidate in therapist:
+            if (TherapistService._has_shift_coverage(candidate.Therapist.id, date, start_time, end_time)
+                    and BookingService._is_therapist_free(candidate.Therapist.id, date, start_time, end_time)):
+                return candidate.Therapist
+        return None
 
     @staticmethod
     def _lock_available_therapist_by_gender(shop_id, date, start_time, end_time, gender):
@@ -231,37 +338,22 @@ class BookingService:
         ).group_by(Therapist.id).order_by(
             db.text('workload ASC'),
             Therapist.id.asc()
-        ).with_for_update(skip_locked=True).first()
+        ).with_for_update(skip_locked=True).all()
 
-        if not therapist:
-            return None
-
-        if not BookingService._is_therapist_free(therapist.Therapist.id, date, start_time, end_time):
-            return None
-
-        return therapist.Therapist
+        for candidate in therapist:
+            if (TherapistService._has_shift_coverage(candidate.Therapist.id, date, start_time, end_time)
+                    and BookingService._is_therapist_free(candidate.Therapist.id, date, start_time, end_time)):
+                return candidate.Therapist
+        return None
 
     @staticmethod
     def _get_available_therapists_for_slot(shop_id, date, start_time, end_time):
-        from app.models.therapist_shift import TherapistShift
-        day_of_week = date.strftime('%A')
-
         all_therapists = Therapist.query.filter_by(shop_id=shop_id, status='active').all()
         available = []
 
         for therapist in all_therapists:
-            shift = TherapistShift.query.filter(
-                TherapistShift.therapist_id == therapist.id,
-                TherapistShift.day_of_week == day_of_week,
-                TherapistShift.effective_from <= date
-            ).first()
-
-            if not shift:
-                continue
-            if not (shift.start_time <= start_time and shift.end_time >= end_time):
-                continue
-
-            if BookingService._is_therapist_free(therapist.id, date, start_time, end_time):
+            if (TherapistService._has_shift_coverage(therapist.id, date, start_time, end_time)
+                    and BookingService._is_therapist_free(therapist.id, date, start_time, end_time)):
                 available.append(therapist)
 
         return available
