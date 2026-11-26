@@ -7,6 +7,7 @@ from app.config import TestingConfig
 from app.extensions import db
 from app.models import Booking, Course, Customer, Shop, Therapist, TherapistShift
 from app.models.booking import BookingTherapist
+from flask_jwt_extended import create_access_token
 
 
 def _booking_date():
@@ -89,7 +90,8 @@ def test_group_booking_consumes_one_capacity_per_guest(
     assert group_response.get_json()['error']['code'] == 'INSUFFICIENT_THERAPISTS'
 
     booking_id = response.get_json()['data']['bookingId']
-    cancelled = client.patch(f'/api/bookings/{booking_id}/cancel')
+    token = create_access_token(identity={'role': 'customer', 'type': 'customer_access', 'phone': '0901234567'})
+    cancelled = client.patch(f'/api/bookings/{booking_id}/cancel', headers={'Authorization': f'Bearer {token}'})
     assert cancelled.status_code == 200
     assert _slot(client, sample_shop.id)['availableCapacity'] == 3
 

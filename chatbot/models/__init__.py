@@ -102,6 +102,7 @@ class GetTherapistsResponse(BaseModel):
 class LookupBookingRequest(BaseModel):
     bookingCode: str | None = None
     phoneNumber: str | None = None
+    accessToken: str | None = Field(default=None, repr=False)
 
 
 class BookingService(BaseModel):
@@ -236,6 +237,7 @@ class ModifyBookingAddOn(BaseModel):
 
 class ModifyBookingRequest(BaseModel):
     bookingId: int
+    accessToken: str | None = Field(default=None, repr=False)
     shopId: int | None = None
     bookingDate: date | None = None
     startTime: time | None = None
@@ -255,6 +257,7 @@ class ModifyBookingResponse(BaseModel):
 # CancelBooking
 class CancelBookingRequest(BaseModel):
     bookingId: int
+    accessToken: str | None = Field(default=None, repr=False)
     reason: str | None = None
 
 

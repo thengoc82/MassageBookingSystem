@@ -19,6 +19,36 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+const CUSTOMER_ACCESS_KEY = 'customer_booking_access';
+
+export function saveCustomerBookingAccess(phone: string, token: string) {
+  sessionStorage.setItem(CUSTOMER_ACCESS_KEY, JSON.stringify({ phone, token }));
+}
+
+export function clearCustomerBookingAccess() {
+  if (typeof window !== 'undefined') sessionStorage.removeItem(CUSTOMER_ACCESS_KEY);
+}
+
+export function getCustomerBookingAccess(): { phone: string; token: string } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const value = JSON.parse(sessionStorage.getItem(CUSTOMER_ACCESS_KEY) || 'null');
+    return typeof value?.phone === 'string' && typeof value?.token === 'string' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function customerBookingHeaders(): Record<string, string> {
+  const customer = getCustomerBookingAccess();
+  return customer ? { Authorization: `Bearer ${customer.token}` } : {};
+}
+
+function bookingHeaders(): Record<string, string> {
+  const staff = authHeaders();
+  return staff.Authorization ? staff : customerBookingHeaders();
+}
+
 async function authFetch(url: string, options: RequestInit = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -58,6 +88,12 @@ export const api = {
   },
 
   bookings: {
+    requestAccessCode: (phoneNumber: string) => fetch(`${API_BASE_URL}/booking-access/challenges`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber })
+    }).then(handleResponse),
+    verifyAccessCode: (phoneNumber: string, code: string) => fetch(`${API_BASE_URL}/booking-access/verifications`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber, code })
+    }).then(handleResponse),
     create: (data: any) => fetch(`${API_BASE_URL}/bookings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -66,19 +102,21 @@ export const api = {
 
     getAll: (params?: any) => {
       const queryString = params ? new URLSearchParams(params).toString() : '';
-      return fetch(`${API_BASE_URL}/bookings?${queryString}`).then(handleResponse);
+      return fetch(`${API_BASE_URL}/bookings?${queryString}`, { headers: customerBookingHeaders() }).then(handleResponse);
     },
 
-    getById: (id: number) => fetch(`${API_BASE_URL}/bookings/${id}`).then(handleResponse),
+    getById: (id: number, customer = false) => fetch(`${API_BASE_URL}/bookings/${id}`, {
+      headers: customer ? customerBookingHeaders() : bookingHeaders()
+    }).then(handleResponse),
 
     update: (id: number, data: any) => fetch(`${API_BASE_URL}/bookings/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...bookingHeaders() },
       body: JSON.stringify(data)
     }).then(handleResponse),
 
     cancel: (id: number) => fetch(`${API_BASE_URL}/bookings/${id}/cancel`, {
-      method: 'PATCH'
+      method: 'PATCH', headers: customerBookingHeaders()
     }).then(handleResponse),
 
     checkEligibility: (phoneNumber: string) => fetch(`${API_BASE_URL}/booking-eligibility-checks`, {
@@ -97,6 +135,10 @@ export const api = {
   },
 
   admin: {
+    getAvailableSlots: (shopId: number, params: Record<string, string>) => {
+      const queryString = new URLSearchParams(params).toString();
+      return authFetch(`${API_BASE_URL}/admin/shops/${shopId}/available-slots?${queryString}`);
+    },
     getBookings: (params?: any) => {
       const queryString = params ? new URLSearchParams(params).toString() : '';
       return authFetch(`${API_BASE_URL}/admin/bookings?${queryString}`);

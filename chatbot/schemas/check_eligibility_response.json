@@ -6,14 +6,10 @@
     "success": {"type": "boolean"},
     "data": {
       "type": "object",
-      "required": ["customerId", "isEligible", "memberRank", "visitCount", "isBlocked"],
+      "required": ["isEligible", "isBlocked"],
       "properties": {
-        "customerId": {"type": "integer"},
         "isEligible": {"type": "boolean"},
-        "memberRank": {"type": "string", "enum": ["Silver", "Gold", "Platinum"]},
-        "visitCount": {"type": "integer", "minimum": 0},
-        "isBlocked": {"type": "boolean"},
-        "blockReason": {"type": "string"}
+        "isBlocked": {"type": "boolean"}
       }
     },
     "message": {"type": "string"}

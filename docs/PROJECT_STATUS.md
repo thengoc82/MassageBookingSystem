@@ -9,6 +9,7 @@ This file tracks the implementation checklist for the AI massage booking specifi
 | 01 — Define and enforce booking creation rules | **Completed** | Code commit `5d9a027` on `origin/main`; Flask API suite: 27 passed. |
 | 02 — Make therapist assignment and slot capacity consistent under concurrent requests | **Completed** | [Task 02 record](progress/task-02.md); Flask API suite: 33 passed, including a file-backed SQLite race test. |
 | 03 — Repair booking modification | **Completed** | [Task 03 record](progress/task-03.md); Flask API suite: 48 passed, including a file-backed create-versus-modify race test. |
+| 04 — Public booking access and staff-only transitions | **Implemented for local development; deployed delivery deferred** | [Task 04 record](progress/task-04.md); Flask API suite: 58 passed. Frontend type check and focused chatbot tests passed. |
 
 ## Task 2 implementation and scope
 

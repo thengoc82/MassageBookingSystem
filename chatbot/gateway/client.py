@@ -57,6 +57,7 @@ class HTTPClient:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         client = await self._get_client()
         last_exception: Exception | None = None
@@ -69,6 +70,7 @@ class HTTPClient:
                     url=path,
                     params=params,
                     json=json,
+                    headers=headers,
                 )
 
                 if response.status_code >= 400:
@@ -145,14 +147,14 @@ class HTTPClient:
         )
 
 
-    async def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        return await self._request_with_retry("GET", path, params=params)
+    async def get(self, path: str, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+        return await self._request_with_retry("GET", path, params=params, headers=headers)
 
     async def post(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
         return await self._request_with_retry("POST", path, json=json)
 
-    async def patch(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
-        return await self._request_with_retry("PATCH", path, json=json)
+    async def patch(self, path: str, json: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
+        return await self._request_with_retry("PATCH", path, json=json, headers=headers)
 
     async def put(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
         return await self._request_with_retry("PUT", path, json=json)

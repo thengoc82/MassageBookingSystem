@@ -60,6 +60,10 @@ class ConversationState(BaseModel):
     booking_context: BookingContext = Field(default_factory=BookingContext)
     pending_action: PendingAction | None = None  # Updated to store structured PendingAction
     lookup_code: str | None = None
+    lookup_phone: str | None = None
+    lookup_awaiting_phone: bool = False
+    lookup_pending_phone: str | None = None
+    lookup_access_token: str | None = None
     last_tool_result: dict | None = None
     offered_slot_time: str | None = None
     slot_confirmed: bool = False

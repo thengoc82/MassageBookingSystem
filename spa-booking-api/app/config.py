@@ -15,6 +15,7 @@ class Config:
     JWT_IDENTITY_CLAIM = 'identity'
 
     REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    BOOKING_ACCESS_DELIVERY_PROVIDER = 'disabled'
 
     CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/1')
     CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1')
@@ -39,6 +40,7 @@ class Config:
 
 class DevelopmentConfig(Config):
     DEBUG = True
+    BOOKING_ACCESS_DELIVERY_PROVIDER = 'terminal'
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///dev.db')
 
 class ProductionConfig(Config):

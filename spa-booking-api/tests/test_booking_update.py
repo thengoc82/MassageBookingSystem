@@ -3,12 +3,19 @@ from datetime import date, datetime, time, timedelta
 from threading import Barrier
 
 import pytest
+from flask_jwt_extended import create_access_token
 
 from app import create_app
 from app.config import TestingConfig
 from app.extensions import db
 from app.models import Booking, Course, Shop, Therapist, TherapistShift
 from app.models.booking import BookingTherapist
+
+
+@pytest.fixture(autouse=True)
+def authorize_existing_update_tests(client):
+    token = create_access_token(identity={'role': 'admin', 'type': 'admin', 'user_id': 1})
+    client.environ_base['HTTP_AUTHORIZATION'] = f'Bearer {token}'
 
 
 def _date(days=7):
@@ -278,6 +285,7 @@ def test_concurrent_create_and_modify_cannot_take_same_therapist(tmp_path, monke
         ))
         db.session.commit()
         shop_id, course_id = shop.id, course.id
+        admin_token = create_access_token(identity={'role': 'admin', 'type': 'admin', 'user_id': 1})
         with app.test_client() as client:
             booking_id = _create(client, shop_id, course_id, start='10:00')
 
@@ -286,7 +294,8 @@ def test_concurrent_create_and_modify_cannot_take_same_therapist(tmp_path, monke
     def modify():
         with app.test_client() as client:
             barrier.wait(timeout=5)
-            response = client.patch(f'/api/bookings/{booking_id}', json={'startTime': '11:00'})
+            response = client.patch(f'/api/bookings/{booking_id}', json={'startTime': '11:00'},
+                                    headers={'Authorization': f'Bearer {admin_token}'})
             return response.status_code, response.get_json()
 
     def create():

@@ -1,10 +1,12 @@
 from app.blueprints.therapist import therapist_bp
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingTherapist
+from app.services.booking_service import BookingService
 from app.utils import success_response
 from app.utils.decorators import role_required
 from app.utils.errors import ValidationError
 from flask import request
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import or_
 
 
 @therapist_bp.route('/bookings', methods=['GET'])
@@ -16,7 +18,9 @@ def get_my_bookings():
     if not therapist_id:
         raise ValidationError('Therapist identity not found')
 
-    query = Booking.query.filter_by(therapist_id=therapist_id)
+    query = Booking.query.outerjoin(BookingTherapist).filter(
+        or_(Booking.therapist_id == therapist_id, BookingTherapist.therapist_id == therapist_id)
+    ).distinct()
 
     status = request.args.get('status')
     if status:
@@ -66,19 +70,11 @@ def therapist_checkin(booking_id):
         from app.utils.errors import ResourceNotFound
         raise ResourceNotFound('Booking')
 
-    if booking.therapist_id != therapist_id:
+    if not _is_assigned(booking, therapist_id):
         from app.utils.errors import Forbidden
         raise Forbidden('This booking is not assigned to you')
 
-    if booking.status != 'Booked':
-        from app.utils.errors import BusinessRuleViolation
-        raise BusinessRuleViolation(
-            'INVALID_CHECKIN_STATUS', 'Only Booked bookings can be checked in'
-        )
-
-    booking.status = 'CheckedIn'
-    from app.extensions import db
-    db.session.commit()
+    booking = BookingService.checkin(booking_id, therapist_id=therapist_id)
 
     return success_response(
         {'bookingId': booking.id, 'status': booking.status},
@@ -97,21 +93,19 @@ def therapist_checkout(booking_id):
         from app.utils.errors import ResourceNotFound
         raise ResourceNotFound('Booking')
 
-    if booking.therapist_id != therapist_id:
+    if not _is_assigned(booking, therapist_id):
         from app.utils.errors import Forbidden
         raise Forbidden('This booking is not assigned to you')
 
-    if booking.status != 'CheckedIn':
-        from app.utils.errors import BusinessRuleViolation
-        raise BusinessRuleViolation(
-            'INVALID_CHECKOUT_STATUS', 'Only CheckedIn bookings can be checked out'
-        )
-
-    booking.status = 'CheckedOut'
-    from app.extensions import db
-    db.session.commit()
+    booking = BookingService.checkout(booking_id, therapist_id=therapist_id)
 
     return success_response(
         {'bookingId': booking.id, 'status': booking.status},
         message='Checked out'
+    )
+
+
+def _is_assigned(booking, therapist_id):
+    return booking.therapist_id == therapist_id or any(
+        row.therapist_id == therapist_id for row in booking.booking_therapists
     )

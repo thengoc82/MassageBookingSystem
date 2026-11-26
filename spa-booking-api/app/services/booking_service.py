@@ -3,6 +3,7 @@ import random
 import string
 from datetime import datetime, timedelta
 
+from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
@@ -13,7 +14,7 @@ from app.models.course import Course
 from app.models.shop import Shop
 from app.services.customer_service import CustomerService
 from app.services.therapist_service import TherapistService
-from app.utils.errors import APIError, BusinessRuleViolation, ResourceNotFound, ValidationError
+from app.utils.errors import APIError, BusinessRuleViolation, Forbidden, ResourceNotFound, ValidationError
 
 
 class BookingService:
@@ -333,7 +334,8 @@ class BookingService:
             query = query.filter_by(shop_id=filters['shop_id'])
 
         if filters.get('phone'):
-            query = query.filter_by(phone_number=filters['phone'])
+            from app.services.booking_access import phone_aliases
+            query = query.filter(Booking.phone_number.in_(phone_aliases(filters['phone'])))
 
         if filters.get('status'):
             query = query.filter_by(status=filters['status'])
@@ -561,45 +563,41 @@ class BookingService:
 
     @staticmethod
     def cancel(booking_id):
-        booking = Booking.query.get(booking_id)
-        if not booking:
-            raise ResourceNotFound('Booking')
-
-        if booking.status != 'Booked':
-            raise BusinessRuleViolation('INVALID_CANCEL_STATUS', 'Only Booked bookings can be cancelled')
-
-        booking.status = 'Cancelled'
-        db.session.commit()
-
-        return booking
+        return BookingService._transition(booking_id, 'Booked', 'Cancelled', 'INVALID_CANCEL_STATUS', 'Only Booked bookings can be cancelled')
 
     @staticmethod
-    def checkin(booking_id):
-        booking = Booking.query.get(booking_id)
-        if not booking:
-            raise ResourceNotFound('Booking')
-
-        if booking.status != 'Booked':
-            raise BusinessRuleViolation('INVALID_CHECKIN_STATUS', 'Only Booked bookings can be checked in')
-
-        booking.status = 'CheckedIn'
-        db.session.commit()
-
-        return booking
+    def checkin(booking_id, therapist_id=None):
+        return BookingService._transition(booking_id, 'Booked', 'CheckedIn', 'INVALID_CHECKIN_STATUS', 'Only Booked bookings can be checked in', therapist_id)
 
     @staticmethod
-    def checkout(booking_id):
-        booking = Booking.query.get(booking_id)
-        if not booking:
-            raise ResourceNotFound('Booking')
+    def checkout(booking_id, therapist_id=None):
+        return BookingService._transition(booking_id, 'CheckedIn', 'CheckedOut', 'INVALID_CHECKOUT_STATUS', 'Only CheckedIn bookings can be checked out', therapist_id)
 
-        if booking.status != 'CheckedIn':
-            raise BusinessRuleViolation('INVALID_CHECKOUT_STATUS', 'Only CheckedIn bookings can be checked out')
-
-        booking.status = 'CheckedOut'
+    @staticmethod
+    def _transition(booking_id, expected, target, error_code, message, therapist_id=None):
+        query = Booking.query.filter_by(id=booking_id, status=expected)
+        if therapist_id is not None:
+            query = query.filter(or_(
+                Booking.therapist_id == therapist_id,
+                Booking.booking_therapists.any(BookingTherapist.therapist_id == therapist_id),
+            ))
+        changed = query.update(
+            {'status': target}, synchronize_session=False
+        )
+        if not changed:
+            db.session.rollback()
+            current = db.session.get(Booking, booking_id)
+            if current is None:
+                raise ResourceNotFound('Booking')
+            if therapist_id is not None and not (
+                current.therapist_id == therapist_id or any(
+                    row.therapist_id == therapist_id for row in current.booking_therapists
+                )
+            ):
+                raise Forbidden('This booking is not assigned to you')
+            raise BusinessRuleViolation(error_code, message)
         db.session.commit()
-
-        return booking
+        return db.session.get(Booking, booking_id)
 
     @staticmethod
     def _booking_to_dict(booking, detailed=False):

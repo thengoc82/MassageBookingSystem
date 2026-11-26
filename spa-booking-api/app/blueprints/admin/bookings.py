@@ -1,9 +1,8 @@
 from app.blueprints.admin import admin_bp
-from app.extensions import db
+from app.services.booking_service import BookingService
 from app.models.booking import Booking
 from app.utils import success_response
 from app.utils.decorators import role_required
-from app.utils.errors import BusinessRuleViolation, ResourceNotFound
 from flask import request
 
 
@@ -62,17 +61,7 @@ def list_bookings():
 @admin_bp.route('/bookings/<int:booking_id>/cancel', methods=['PATCH'])
 @role_required('admin')
 def admin_cancel(booking_id):
-    booking = Booking.query.get(booking_id)
-    if not booking:
-        raise ResourceNotFound('Booking')
-
-    if booking.status != 'Booked':
-        raise BusinessRuleViolation(
-            'INVALID_CANCEL_STATUS', 'Only Booked bookings can be cancelled'
-        )
-
-    booking.status = 'Cancelled'
-    db.session.commit()
+    booking = BookingService.cancel(booking_id)
 
     return success_response(
         {'bookingId': booking.id, 'status': booking.status},
@@ -83,17 +72,7 @@ def admin_cancel(booking_id):
 @admin_bp.route('/bookings/<int:booking_id>/checkin', methods=['PATCH'])
 @role_required('admin')
 def admin_checkin(booking_id):
-    booking = Booking.query.get(booking_id)
-    if not booking:
-        raise ResourceNotFound('Booking')
-
-    if booking.status != 'Booked':
-        raise BusinessRuleViolation(
-            'INVALID_CHECKIN_STATUS', 'Only Booked bookings can be checked in'
-        )
-
-    booking.status = 'CheckedIn'
-    db.session.commit()
+    booking = BookingService.checkin(booking_id)
 
     return success_response(
         {'bookingId': booking.id, 'status': booking.status},
@@ -104,17 +83,7 @@ def admin_checkin(booking_id):
 @admin_bp.route('/bookings/<int:booking_id>/checkout', methods=['PATCH'])
 @role_required('admin')
 def admin_checkout(booking_id):
-    booking = Booking.query.get(booking_id)
-    if not booking:
-        raise ResourceNotFound('Booking')
-
-    if booking.status != 'CheckedIn':
-        raise BusinessRuleViolation(
-            'INVALID_CHECKOUT_STATUS', 'Only CheckedIn bookings can be checked out'
-        )
-
-    booking.status = 'CheckedOut'
-    db.session.commit()
+    booking = BookingService.checkout(booking_id)
 
     return success_response(
         {'bookingId': booking.id, 'status': booking.status},

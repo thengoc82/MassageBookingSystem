@@ -6,7 +6,7 @@ Flask-based REST API for the AI Massage Booking system.
 
 ### Prerequisites
 - Python 3.9+
-- Redis 7+ (optional)
+- Redis 7+ for customer booking access
 
 ### Installation
 
@@ -38,6 +38,10 @@ python run.py
 ```
 
 API available at http://localhost:5000
+
+Customer booking lookup, detail, modification, and cancellation require a six-digit access code. In Flask development mode, the code is printed with the phone number in the API terminal. Redis stores only a keyed hash, expires the code after five minutes, and enforces attempt and request limits. No Twilio account or paid service is needed for local testing.
+
+For local testing, run `redis-cli ping` and expect `PONG`, then start the Flask API with `python run.py`. Enter a phone number on **My Bookings**, click **Get code**, and read the code in the Flask terminal. The code is not in the API response. The terminal provider is available only in Flask development mode. Docker Compose runs the API in production mode, where terminal delivery is blocked and customer access returns 503 until a real delivery provider is added. Production startup requires strong `SECRET_KEY` and `JWT_SECRET_KEY` values.
 
 ## Project Structure
 

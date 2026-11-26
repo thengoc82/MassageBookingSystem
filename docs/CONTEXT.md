@@ -144,7 +144,10 @@ Only `Booked` status allows modification.
 System operator who manages Shops, Courses, Therapists, Shifts, and Bookings. Can check customers in/out. Can manage the NG List.
 
 **Customer** (public role)
-Person using the booking system. No authentication required — identified by phone number.
+Person using the booking system. Booking creation requires no account. Viewing, editing, or cancelling existing bookings requires a short-lived access code for the booking phone; see [ADR 0004](adr/0004-phone-verified-booking-access.md). The development terminal provider supports local testing only and does not prove control of the phone.
+
+**Booking access**
+Booking access code verification issues a short-lived token scoped to the normalized phone. It grants access to that phone's bookings only. Booking code, booking ID, and phone number alone do not grant access. Admins may manage any booking; assigned therapists may view and check in/out their bookings, including group assignments. Only an admin or assigned therapist may check in/out a booking.
 
 ---
 

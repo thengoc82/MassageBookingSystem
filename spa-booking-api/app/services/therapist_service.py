@@ -4,6 +4,7 @@ from app.extensions import db
 from app.models.booking import Booking, BookingTherapist
 from app.models.therapist import Therapist
 from app.models.therapist_shift import TherapistShift
+from sqlalchemy import or_
 
 
 class TherapistService:
@@ -111,12 +112,12 @@ class TherapistService:
 
     @staticmethod
     def get_schedule(therapist_id, date_from, date_to):
-        bookings = Booking.query.filter(
-            Booking.therapist_id == therapist_id,
+        bookings = Booking.query.outerjoin(BookingTherapist).filter(
+            or_(Booking.therapist_id == therapist_id, BookingTherapist.therapist_id == therapist_id),
             Booking.booking_date >= date_from,
             Booking.booking_date <= date_to,
             Booking.status.in_(['Booked', 'CheckedIn'])
-        ).order_by(Booking.booking_date, Booking.start_time).all()
+        ).distinct().order_by(Booking.booking_date, Booking.start_time).all()
 
         return [{
             'bookingId': b.id,

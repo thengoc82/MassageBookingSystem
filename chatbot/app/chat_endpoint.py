@@ -452,7 +452,8 @@ class ChatEndpoint:
             history = session.conversation_history or []
             conversation = Conversation(history=list(history))
 
-            conversation.add_message("user", request.message)
+            verification_reply = bool(state.lookup_pending_phone and re.fullmatch(r"\s*\d{6}\s*", request.message))
+            conversation.add_message("user", "[verification code]" if verification_reply else request.message)
             response_data = None
             response_success = True
 
@@ -478,8 +479,10 @@ class ChatEndpoint:
                 if classified.intent == IntentType.BOOK_MASSAGE and state.phase == ConversationPhase.BOOKING_COMPLETE:
                     state = self._conversation_manager.reset(state)
                 informational = classified.intent == IntentType.FAQ
-                lookup_reply = bool(state.lookup_code and re.search(r"(?<!\d)\d{9,11}(?!\d)", request.message))
-                if informational:
+                lookup_reply = bool(state.lookup_awaiting_phone and re.search(r"(?<!\d)\d{9,11}(?!\d)", request.message))
+                if state.lookup_pending_phone and re.fullmatch(r"\s*\d{6}\s*", request.message):
+                    response = await self._verify_lookup_code(request.message.strip(), state, conversation, metrics)
+                elif informational:
                     response = await self._run_faq(
                         request.message, state, conversation, metrics
                     )
@@ -1685,12 +1688,9 @@ class ChatEndpoint:
             return IntentResponse(False, msg, state, conversation)
         data = result.data
         if data.isEligible:
-            msg = (
-                f"You're eligible! Member rank: {data.memberRank or 'N/A'}, "
-                f"visits: {data.visitCount}."
-            )
+            msg = "This phone number is eligible to book."
         else:
-            msg = f"Sorry, you're not eligible: {data.blockReason or 'blocked'}."
+            msg = "Sorry, this phone number is not eligible to book."
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation)
 
@@ -1706,20 +1706,46 @@ class ChatEndpoint:
         m = re.search(r"BK\d{12}", message.upper())
         booking_code = m.group(0) if m else state.lookup_code
         phone_match = re.search(r"(?<!\d)\d{9,11}(?!\d)", message)
-        phone = phone_match.group(0) if phone_match else state.booking_context.phone_number
+        phone = phone_match.group(0) if phone_match else state.lookup_phone or state.booking_context.phone_number
         if not phone:
             state.lookup_code = booking_code
+            state.lookup_awaiting_phone = True
             msg = "Please share the booking phone number. Include the booking code if you have it."
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
+        state.lookup_awaiting_phone = False
+        if state.lookup_phone != phone:
+            state.lookup_access_token = None
+            state.lookup_pending_phone = None
+        state.lookup_phone = phone
+        if not state.lookup_access_token:
+            assert self._http_client is not None
+            try:
+                challenge = await self._http_client.post('/booking-access/challenges', json={'phoneNumber': phone})
+            except ChatbotError:
+                msg = "I couldn't send a verification code right now. Please try again later."
+                conversation.add_message('assistant', msg)
+                return IntentResponse(False, msg, state, conversation)
+            state.lookup_pending_phone = phone
+            state.lookup_code = booking_code
+            delivery = (challenge.get('data') or {}).get('delivery')
+            msg = ("For local development, the six-digit verification code is in the Flask API terminal. Please reply with it."
+                   if delivery == 'terminal' else
+                   "Please reply with the six-digit verification code sent to that phone.")
+            conversation.add_message('assistant', msg)
+            return IntentResponse(True, msg, state, conversation)
         tool = self._tool_registry.get("lookupBooking")
         try:
             result = await tool.execute(LookupBookingRequest(
-                bookingCode=booking_code, phoneNumber=phone,
+                bookingCode=booking_code, phoneNumber=phone, accessToken=state.lookup_access_token,
             ))
-        except ChatbotError:
+        except ChatbotError as error:
+            if error.code in {ChatbotErrorCode.UNAUTHORIZED, ChatbotErrorCode.FORBIDDEN}:
+                state.lookup_access_token = None
             state.lookup_code = booking_code
-            msg = "I couldn't check that booking right now. Please ask me to check again."
+            msg = ("Phone verification expired. Please ask me to check the booking again."
+                   if error.code == ChatbotErrorCode.UNAUTHORIZED else
+                   "I couldn't check that booking right now. Please ask me to check again.")
             msg += self._booking_resume_prompt(state)
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
@@ -1760,6 +1786,20 @@ class ChatEndpoint:
         )
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation)
+
+    async def _verify_lookup_code(self, code, state, conversation, metrics):
+        assert self._http_client is not None
+        phone = state.lookup_pending_phone
+        try:
+            result = await self._http_client.post('/booking-access/verifications', json={'phoneNumber': phone, 'code': code})
+        except ChatbotError:
+            msg = "That verification code was invalid or expired. Please ask me to check the booking again."
+            state.lookup_pending_phone = None
+            conversation.add_message('assistant', msg)
+            return IntentResponse(False, msg, state, conversation)
+        state.lookup_access_token = result['data']['accessToken']
+        state.lookup_pending_phone = None
+        return await self._run_lookup_booking(phone, state, conversation, metrics)
 
     async def _run_faq(
         self,

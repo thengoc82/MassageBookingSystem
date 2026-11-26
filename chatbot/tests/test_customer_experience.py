@@ -289,9 +289,18 @@ async def test_uncertain_backend_write_requires_lookup_before_retry() -> None:
     endpoint._tool_registry.get.side_effect = lambda name: (
         lookup if name == "lookupBooking" else previous_get(name)
     )
-    verified = await send(endpoint, "check my booking")
+    challenge = await send(endpoint, "check my booking")
+    assert "verification code" in challenge.message
+    assert "Flask API terminal" in challenge.message
+    verified = await send(endpoint, "123456")
     assert verified.phase == ConversationPhase.BOOKING_COMPLETE
     assert "BK202611230001" in verified.message
+    assert lookup.execute.await_args.args[0].accessToken == 'verified-token'
+    assert ['user', '[verification code]'] in sessions['s1'].conversation_history
+    assert ['user', '123456'] not in sessions['s1'].conversation_history
+    another = await endpoint.process_message(ChatRequest(message='check my booking 0901234568', session_id='s2'))
+    assert 'verification code' in another.message
+    assert ConversationState(**sessions['s2'].conversation_state).lookup_access_token is None
     create_tool.execute.assert_awaited_once()
 
 
@@ -334,7 +343,9 @@ async def test_lookup_timeout_during_booking_preserves_draft() -> None:
         lookup if name == "lookupBooking" else previous_get(name)
     )
 
-    failed = await send(endpoint, "check my booking BK202611230001")
+    challenge = await send(endpoint, "check my booking BK202611230001")
+    assert "verification code" in challenge.message
+    failed = await send(endpoint, "123456")
     assert failed.success is False
     assert failed.phase == ConversationPhase.SEARCHING_SLOTS
     assert saved(sessions).booking_context.course_name == "Full Body Massage"

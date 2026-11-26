@@ -11,7 +11,7 @@ class SlotService:
     SLOT_INTERVAL = 15
 
     @staticmethod
-    def get_available_slots(shop_id, date, duration, number_of_people, start_time=None, course_ids=None, gender=None, show_therapists=False):
+    def get_available_slots(shop_id, date, duration, number_of_people, start_time=None, course_ids=None, gender=None, show_therapists=False, include_booking_details=False):
         shop = Shop.query.get(shop_id)
         if not shop:
             raise ResourceNotFound('Shop')
@@ -66,7 +66,7 @@ class SlotService:
 
             current_time += timedelta(minutes=SlotService.SLOT_INTERVAL)
 
-        if show_therapists:
+        if show_therapists and include_booking_details:
             bookings_q = Booking.query.filter(
                 Booking.shop_id == shop_id,
                 Booking.booking_date == date_obj,
@@ -113,5 +113,8 @@ class SlotService:
                         therapist_booking_details[tid].append(booking_detail)
 
             return {'therapists': therapist_list, 'slots': slots, 'therapistBookingDetails': therapist_booking_details}
+
+        if show_therapists:
+            return {'therapists': therapist_list, 'slots': slots}
 
         return slots

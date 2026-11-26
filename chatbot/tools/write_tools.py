@@ -44,8 +44,10 @@ class ModifyBookingTool(BaseTool[ModifyBookingRequest, ModifyBookingResponse]):
         self._client = http_client
 
     async def execute(self, request: ModifyBookingRequest) -> ModifyBookingResponse:
+        if not request.accessToken:
+            raise ChatbotError(ChatbotErrorCode.VALIDATION_ERROR, "Phone verification is required")
         booking_id = request.bookingId
-        payload = request.model_dump(mode="json", exclude={"bookingId"}, exclude_none=True)
+        payload = request.model_dump(mode="json", exclude={"bookingId", "accessToken"}, exclude_none=True)
         unsupported = set(payload) - {"startTime", "therapistId"}
         if unsupported or not payload:
             raise ChatbotError(
@@ -54,7 +56,7 @@ class ModifyBookingTool(BaseTool[ModifyBookingRequest, ModifyBookingResponse]):
             )
         if request.startTime:
             payload["startTime"] = request.startTime.strftime("%H:%M")
-        response = await self._client.patch(f"/bookings/{booking_id}", json=payload)
+        response = await self._client.patch(f"/bookings/{booking_id}", json=payload, headers={"Authorization": f"Bearer {request.accessToken}"})
         data = response.get("data") or response
         return ModifyBookingResponse(
             success=response["success"], bookingId=data.get("bookingId"),
@@ -72,8 +74,10 @@ class CancelBookingTool(BaseTool[CancelBookingRequest, CancelBookingResponse]):
         self._client = http_client
 
     async def execute(self, request: CancelBookingRequest) -> CancelBookingResponse:
+        if not request.accessToken:
+            raise ChatbotError(ChatbotErrorCode.VALIDATION_ERROR, "Phone verification is required")
         booking_id = request.bookingId
-        response = await self._client.patch(f"/bookings/{booking_id}/cancel", json={})
+        response = await self._client.patch(f"/bookings/{booking_id}/cancel", json={}, headers={"Authorization": f"Bearer {request.accessToken}"})
         data = response.get("data") or response
         return CancelBookingResponse(
             success=response["success"], bookingId=data.get("bookingId"),

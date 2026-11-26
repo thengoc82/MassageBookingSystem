@@ -89,11 +89,11 @@ async def test_modify_booking_uses_supported_patch_route() -> None:
         "success": True, "data": {"bookingId": 7}, "message": "Booking updated"
     }
     result = await ModifyBookingTool(client).execute(
-        ModifyBookingRequest(bookingId=7, startTime=time(17, 0))
+        ModifyBookingRequest(bookingId=7, startTime=time(17, 0), accessToken="verified-token")
     )
     assert result.bookingId == 7
     client.patch.assert_awaited_once_with(
-        "/bookings/7", json={"startTime": "17:00"}
+        "/bookings/7", json={"startTime": "17:00"}, headers={"Authorization": "Bearer verified-token"}
     )
 
 
@@ -105,7 +105,7 @@ async def test_modify_booking_rejects_fields_flask_ignores() -> None:
     client = AsyncMock(spec=HTTPClient)
     with pytest.raises(ChatbotError):
         await ModifyBookingTool(client).execute(
-            ModifyBookingRequest(bookingId=7, numberOfPeople=3)
+            ModifyBookingRequest(bookingId=7, numberOfPeople=3, accessToken="verified-token")
         )
     client.patch.assert_not_awaited()
 
@@ -118,6 +118,19 @@ async def test_cancel_booking_uses_patch_cancel_route() -> None:
     client.patch.return_value = {
         "success": True, "data": {"bookingId": 7}, "message": "Booking cancelled"
     }
-    result = await CancelBookingTool(client).execute(CancelBookingRequest(bookingId=7))
+    result = await CancelBookingTool(client).execute(CancelBookingRequest(bookingId=7, accessToken="verified-token"))
     assert result.bookingId == 7
-    client.patch.assert_awaited_once_with("/bookings/7/cancel", json={})
+    client.patch.assert_awaited_once_with("/bookings/7/cancel", json={}, headers={"Authorization": "Bearer verified-token"})
+
+
+@pytest.mark.asyncio
+async def test_customer_write_tools_require_verification() -> None:
+    from chatbot.gateway.errors import ChatbotError
+    from chatbot.models import CancelBookingRequest, ModifyBookingRequest
+
+    client = AsyncMock(spec=HTTPClient)
+    with pytest.raises(ChatbotError):
+        await ModifyBookingTool(client).execute(ModifyBookingRequest(bookingId=7, startTime=datetime.now().time()))
+    with pytest.raises(ChatbotError):
+        await CancelBookingTool(client).execute(CancelBookingRequest(bookingId=7))
+    client.patch.assert_not_awaited()

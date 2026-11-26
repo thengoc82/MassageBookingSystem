@@ -1,8 +1,9 @@
 {
   "type": "object",
   "properties": {
-    "bookingId": { "type": "string" },
+    "bookingId": { "type": "integer" },
+    "accessToken": { "type": "string" },
     "reason": { "type": "string" }
   },
-  "required": ["bookingId"]
+  "required": ["bookingId", "accessToken"]
 }

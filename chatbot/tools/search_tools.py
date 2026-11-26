@@ -117,12 +117,14 @@ class LookupBookingTool(BaseTool[LookupBookingRequest, LookupBookingResponse]):
                 ChatbotErrorCode.VALIDATION_ERROR,
                 "A phone number is required to look up a booking",
             )
+        if not request.accessToken:
+            raise ChatbotError(ChatbotErrorCode.VALIDATION_ERROR, "Phone verification is required")
         page = 1
         while True:
             params = {"phone": request.phoneNumber}
             if page > 1:
                 params["page"] = page
-            response = await self._client.get("/bookings", params=params)
+            response = await self._client.get("/bookings", params=params, headers={"Authorization": f"Bearer {request.accessToken}"})
             payload = response.get("data")
             listings = payload.get("data", []) if isinstance(payload, dict) else (payload or [])
             pagination = payload.get("pagination") if isinstance(payload, dict) else response.get("pagination")

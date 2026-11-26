@@ -44,7 +44,8 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.bookings.getById(Number(id)).then((res: any) => {
+    const customerView = new URLSearchParams(window.location.search).get('customer') === '1';
+    api.bookings.getById(Number(id), customerView).then((res: any) => {
       const data = res?.data || res;
       setBooking(data);
     }).catch((err: any) => {

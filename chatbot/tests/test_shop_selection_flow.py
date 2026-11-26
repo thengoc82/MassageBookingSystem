@@ -68,6 +68,11 @@ def make_endpoint(
     }.get(name)
 
     endpoint = ChatEndpoint(session_store=store, tool_registry=registry)
+    endpoint._http_client = MagicMock()
+    endpoint._http_client.post = AsyncMock(side_effect=lambda path, json: (
+        {"success": True, "data": {"accessToken": "verified-token"}}
+        if path.endswith('/verifications') else {"success": True, "data": {"delivery": "terminal"}}
+    ))
     endpoint._initialized = True
     return endpoint, registry
 

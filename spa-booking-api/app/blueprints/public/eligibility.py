@@ -14,4 +14,7 @@ def check_eligibility():
 
     eligibility = CustomerService.check_eligibility(data['phoneNumber'])
 
-    return success_response(eligibility)
+    return success_response({
+        'isEligible': eligibility['isEligible'],
+        'isBlocked': eligibility['isBlocked'],
+    })

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, clearCustomerBookingAccess, getCustomerBookingAccess, saveCustomerBookingAccess } from '@/lib/api';
 import type { Booking } from '@/types';
 
 export default function MyBookingsPage() {
@@ -14,9 +14,53 @@ export default function MyBookingsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [code, setCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [codeDelivery, setCodeDelivery] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const handleAccess = async () => {
+    if (!phoneNumber) return;
+    setError('');
+    setLoading(true);
+    try {
+      if (codeSent) {
+        const response = await api.bookings.verifyAccessCode(phoneNumber, code);
+        saveCustomerBookingAccess(phoneNumber, response.data.accessToken);
+        setCodeSent(false);
+        setCodeDelivery(null);
+        setCode('');
+        await handleSearch(1);
+      } else if (getCustomerBookingAccess()?.phone === phoneNumber) {
+        await handleSearch(1);
+      } else {
+        const response = await api.bookings.requestAccessCode(phoneNumber);
+        setCodeDelivery(response.data?.delivery || null);
+        setCodeSent(true);
+      }
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'Could not verify this phone number');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const response = await api.bookings.requestAccessCode(phoneNumber);
+      setCodeDelivery(response.data?.delivery || null);
+      setCode('');
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : 'Could not resend the code');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSearch = async (targetPage = 1) => {
-    if (!phoneNumber) return;
+    if (!phoneNumber || getCustomerBookingAccess()?.phone !== phoneNumber) return;
 
     try {
       setLoading(true);
@@ -30,8 +74,9 @@ export default function MyBookingsPage() {
         setTotal(pagination?.total || 0);
         setSearched(true);
       }
-    } catch (error) {
-      console.error('Failed to load bookings:', error);
+    } catch (error: unknown) {
+      if ((error as { status?: number })?.status === 401) clearCustomerBookingAccess();
+      setError(error instanceof Error ? error.message : 'Failed to load bookings');
     } finally {
       setLoading(false);
     }
@@ -45,8 +90,9 @@ export default function MyBookingsPage() {
       if (response.success) {
         handleSearch(page);
       }
-    } catch (error) {
-      console.error('Failed to cancel booking:', error);
+    } catch (error: unknown) {
+      if ((error as { status?: number })?.status === 401) clearCustomerBookingAccess();
+      setError(error instanceof Error ? error.message : 'Failed to cancel booking');
     }
   };
 
@@ -76,18 +122,25 @@ export default function MyBookingsPage() {
             <input
               type="tel"
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
+              onChange={(e) => { setPhoneNumber(e.target.value); setCodeSent(false); setCodeDelivery(null); setSearched(false); setBookings([]); setError(''); }}
               placeholder="0123456789"
               className="flex-1 rounded-lg border-2 border-[#365F91] p-3 text-gray-900 placeholder:text-[#6B7C93]"
             />
             <button
-              onClick={() => handleSearch()}
-              disabled={!phoneNumber || loading}
+              onClick={handleAccess}
+              disabled={!phoneNumber || loading || (codeSent && code.length !== 6)}
               className="bg-celadon text-white px-6 py-3 rounded-lg hover:bg-celadon-deep disabled:bg-gray-300"
             >
-              {loading ? 'Searching...' : 'Search'}
+              {loading ? 'Please wait...' : codeSent ? 'Verify and search' : getCustomerBookingAccess()?.phone === phoneNumber ? 'Search' : 'Get code'}
             </button>
           </div>
+          {codeSent && <div className="mt-4">
+            <label className="block text-sm text-black font-medium mb-2">Verification code</label>
+            <input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} maxLength={6} className="rounded-lg border-2 border-[#365F91] p-3 text-gray-900" />
+            <button type="button" onClick={handleResend} disabled={loading} className="ml-3 text-sm text-celadon-deep disabled:opacity-50">Get another code</button>
+            {codeDelivery === 'terminal' && <p className="mt-2 text-sm text-gray-600">For local development, find the code in the Flask API terminal.</p>}
+          </div>}
+          {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
         </div>
 
         {searched && bookings.length === 0 && (
@@ -100,7 +153,7 @@ export default function MyBookingsPage() {
           {bookings.map((booking) => (
             <div
               key={booking.bookingId}
-              onClick={() => router.push(`/bookings/${booking.bookingId}`)}
+              onClick={() => router.push(`/bookings/${booking.bookingId}?customer=1`)}
               className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow"
             >
               <div className="flex justify-between items-start mb-4">

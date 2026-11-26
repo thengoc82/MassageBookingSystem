@@ -1,7 +1,10 @@
 from app.blueprints.bookings import bookings_bp
 from app.services.booking_service import BookingService
+from app.services.booking_access import booking_identity, require_booking_access, require_customer_phone
+from app.models.booking import Booking
 from app.utils import success_response
-from app.utils.errors import ResourceNotFound
+from app.utils.decorators import role_required
+from app.utils.errors import ResourceNotFound, ValidationError
 from flask import request
 
 
@@ -27,9 +30,13 @@ def create_booking():
 
 @bookings_bp.route('', methods=['GET'])
 def get_bookings():
+    phone = request.args.get('phone')
+    if not phone:
+        raise ValidationError('phone is required for customer booking lookup')
+    require_customer_phone(phone)
     filters = {
         'shop_id': request.args.get('shopId', type=int),
-        'phone': request.args.get('phone'),
+        'phone': phone,
         'status': request.args.get('status'),
         'date_from': request.args.get('dateFrom'),
         'date_to': request.args.get('dateTo'),
@@ -43,21 +50,18 @@ def get_bookings():
 
 @bookings_bp.route('/<int:booking_id>', methods=['GET'])
 def get_booking(booking_id):
-    booking = BookingService.get_booking(booking_id)
-
-    if not booking:
+    booking_identity()
+    row = Booking.query.get(booking_id)
+    if not row:
         raise ResourceNotFound('Booking')
+    require_booking_access(row)
+    booking = BookingService.get_booking(booking_id)
 
     return success_response(booking)
 
-@bookings_bp.route('/all')
-def get_all_bookings():
-    filters = {}
-    result = BookingService.get_bookings(filters)
-    return success_response(result)
-
 @bookings_bp.route('/<int:booking_id>', methods=['PATCH'])
 def update_booking(booking_id):
+    _authorized_booking(booking_id, write=True)
     data = request.get_json(silent=True)
     booking = BookingService.update(booking_id, data)
 
@@ -68,6 +72,7 @@ def update_booking(booking_id):
 
 @bookings_bp.route('/<int:booking_id>/cancel', methods=['PATCH'])
 def cancel_booking(booking_id):
+    _authorized_booking(booking_id, write=True)
     booking = BookingService.cancel(booking_id)
 
     return success_response({
@@ -76,6 +81,7 @@ def cancel_booking(booking_id):
     }, message='Booking cancelled')
 
 @bookings_bp.route('/<int:booking_id>/checkin', methods=['PATCH'])
+@role_required('admin')
 def checkin_booking(booking_id):
     booking = BookingService.checkin(booking_id)
 
@@ -85,6 +91,7 @@ def checkin_booking(booking_id):
     }, message='Checked in successfully')
 
 @bookings_bp.route('/<int:booking_id>/checkout', methods=['PATCH'])
+@role_required('admin')
 def checkout_booking(booking_id):
     booking = BookingService.checkout(booking_id)
 
@@ -92,5 +99,14 @@ def checkout_booking(booking_id):
         'bookingId': booking.id,
         'status': booking.status
     }, message='Checked out successfully')
+
+
+def _authorized_booking(booking_id, *, write=False):
+    booking_identity()
+    booking = Booking.query.get(booking_id)
+    if not booking:
+        raise ResourceNotFound('Booking')
+    require_booking_access(booking, write=write)
+    return booking
 
 

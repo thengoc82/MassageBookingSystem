@@ -207,12 +207,12 @@ async def test_lookup_booking_by_code() -> None:
     })
     tool = LookupBookingTool(client)
     request = LookupBookingRequest(
-        bookingCode="BK20260715001", phoneNumber="0123456789"
+        bookingCode="BK20260715001", phoneNumber="0123456789", accessToken="verified-token"
     )
     result = await tool.execute(request)
     assert result.success is True
     assert len(result.data) == 1
-    client.get.assert_awaited_once_with("/bookings", params={"phone": "0123456789"})
+    client.get.assert_awaited_once_with("/bookings", params={"phone": "0123456789"}, headers={"Authorization": "Bearer verified-token"})
 
 
 @pytest.mark.asyncio
@@ -229,6 +229,17 @@ async def test_lookup_code_without_phone_never_queries_all_bookings() -> None:
 
 
 @pytest.mark.asyncio
+async def test_lookup_phone_without_verification_never_queries_bookings() -> None:
+    from chatbot.gateway.errors import ChatbotError
+
+    client = HTTPClient()
+    client.get = AsyncMock()
+    with pytest.raises(ChatbotError):
+        await LookupBookingTool(client).execute(LookupBookingRequest(phoneNumber="0123456789"))
+    client.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_lookup_booking_by_phone() -> None:
     client = make_client_mock({
         "success": True,
@@ -237,10 +248,10 @@ async def test_lookup_booking_by_phone() -> None:
         "pagination": {"page": 1, "size": 20, "total": 0, "totalPages": 0},
     })
     tool = LookupBookingTool(client)
-    request = LookupBookingRequest(phoneNumber="0123456789")
+    request = LookupBookingRequest(phoneNumber="0123456789", accessToken="verified-token")
     result = await tool.execute(request)
     assert result.success is True
-    client.get.assert_called_once_with("/bookings", params={"phone": "0123456789"})
+    client.get.assert_called_once_with("/bookings", params={"phone": "0123456789"}, headers={"Authorization": "Bearer verified-token"})
 
 
 @pytest.mark.asyncio

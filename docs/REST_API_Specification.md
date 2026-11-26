@@ -143,6 +143,7 @@ carries `availableTherapistIds` (therapists free at that exact time):
 ```
 When `show_therapists=true`, **all** shop slots are returned (not just those meeting capacity) so a
 client grid stays stable after a booking — a booked slot simply drops the therapist id from the list.
+The public response does not include booking IDs, codes, course names, or other booking details. Admins can request those details through `GET /api/admin/shops/{shop_id}/available-slots` with the same query parameters and an admin JWT; its response also includes `therapistBookingDetails`.
 
 **Errors:**
 | HTTP | Code                 | Condition          |
@@ -198,33 +199,11 @@ Check if a customer is eligible to book before creating the booking.
 }
 ```
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "customerId": 5,
-    "isEligible": true,
-    "memberRank": "Silver",
-    "visitCount": 3,
-    "isBlocked": false
-  }
-}
-```
+**Response (200):** `{ "success": true, "data": { "isEligible": true, "isBlocked": false } }`
 
 If blocked:
 ```json
-{
-  "success": true,
-  "data": {
-    "customerId": 5,
-    "isEligible": false,
-    "memberRank": "Silver",
-    "visitCount": 3,
-    "isBlocked": true,
-    "blockReason": "Customer on NG List"
-  }
-}
+{ "success": true, "data": { "isEligible": false, "isBlocked": true } }
 ```
 
 **Errors:**
@@ -310,15 +289,25 @@ Create a new booking.
 
 ---
 
+### POST /api/booking-access/challenges
+
+Generate a random six-digit verification code for the supplied phone. Request JSON: `{ "phoneNumber": "0901234567" }`. In development, success returns `{ "success": true, "data": { "delivery": "terminal" }, "message": "Verification code generated" }` and prints the phone and code in the Flask terminal. The code is never returned by the API. The same response applies whether that phone has bookings. Codes expire after five minutes; requests are limited per phone and source IP. Production has no delivery provider yet and returns 503 `VERIFICATION_UNAVAILABLE` without printing a code.
+
+### POST /api/booking-access/verifications
+
+Exchange `{ "phoneNumber": "0901234567", "code": "123456" }` for `{ "success": true, "data": { "accessToken": "..." }, "message": "Phone verified" }`. The code is single use with at most five attempts. The token lasts 30 minutes and authorizes only that phone's bookings. Invalid or expired codes return 401 `UNAUTHORIZED`.
+
 ### GET /api/bookings
 
 Retrieve bookings list with filters.
+
+**Access:** Requires `Authorization: Bearer <customer access token>` and a `phone` query parameter matching the verified phone. An unverified phone number or booking code is not sufficient. Staff use `/api/admin/bookings` or `/api/therapists/bookings`; `/api/bookings/all` is removed.
 
 **Query Parameters:**
 | Name       | Type   | Required | Description                              |
 | ---------- | ------ | -------- | ---------------------------------------- |
 | shopId     | int    | No       | Filter by shop                           |
-| phone      | string | No       | Search by phone number                   |
+| phone      | string | Yes      | Verified customer phone number           |
 | status     | string | No       | `Booked`, `CheckedIn`, `CheckedOut`, `Cancelled` |
 | dateFrom   | string | No       | YYYY-MM-DD                               |
 | dateTo     | string | No       | YYYY-MM-DD                               |
@@ -355,6 +344,8 @@ Retrieve bookings list with filters.
 
 Retrieve full booking detail.
 
+**Access:** Verified customer whose phone matches this booking, admin JWT, or therapist JWT assigned to this booking. An unrelated authenticated caller receives 404.
+
 **Response (200):** Same as list item + `addOns` array + `customerId` + `memberRank`.
 
 **Errors:** 404 BOOKING_NOT_FOUND
@@ -364,6 +355,8 @@ Retrieve full booking detail.
 ### PATCH /api/bookings/{booking_id}
 
 Update a `Booked` booking. The request is a nonempty JSON object containing only fields to change. Omitted fields retain their saved values.
+
+**Access:** Verified customer whose phone matches this booking, or admin JWT. Therapists cannot modify bookings through this route.
 
 **Request:**
 ```json
@@ -757,9 +750,10 @@ Booked ──► CheckedIn ──► CheckedOut
 ```
 
 **Status Management (Admin):**
-- `PATCH /api/bookings/{booking_id}/cancel` — Cancel (only Booked)
-- `PATCH /api/bookings/{booking_id}/checkin` — Check-in (only Booked)
-- `PATCH /api/bookings/{booking_id}/checkout` — Check-out (only CheckedIn)
+- `PATCH /api/bookings/{booking_id}/cancel` — Verified booking phone or admin JWT; only `Booked`.
+- `PATCH /api/bookings/{booking_id}/checkin` — Admin JWT only; only `Booked`.
+- `PATCH /api/bookings/{booking_id}/checkout` — Admin JWT only; only `CheckedIn`.
+- Assigned therapists use `/api/therapists/bookings/{booking_id}/checkin` and `/checkout`. Admins can also use `/api/admin/bookings/{booking_id}/cancel`, `/checkin`, and `/checkout`.
 
 ---
 
@@ -820,6 +814,12 @@ GET    /api/shops/{shop_id}/available-slots
 GET    /api/shops/{shop_id}/available-therapists
 POST   /api/booking-eligibility-checks
 POST   /api/bookings
+POST   /api/booking-access/challenges
+POST   /api/booking-access/verifications
+```
+
+### Customer phone token or staff JWT
+```
 GET    /api/bookings
 GET    /api/bookings/{booking_id}
 PATCH  /api/bookings/{booking_id}
@@ -857,9 +857,13 @@ PATCH  /api/admin/customer-restrictions/{restriction_id}
 
 GET    /api/admin/bookings
 GET    /api/admin/bookings/{booking_id}
+GET    /api/admin/shops/{shop_id}/available-slots
 ```
 
 ### Therapist
 ```
 GET    /api/therapists/me/schedule
+GET    /api/therapists/bookings
+PATCH  /api/therapists/bookings/{booking_id}/checkin
+PATCH  /api/therapists/bookings/{booking_id}/checkout
 ```

@@ -136,8 +136,8 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     };
 
     Promise.all([
-      api.shops.getAvailableSlots(shopId, slotParams),
-      api.bookings.getAll(bookingParams),
+      showDetails ? api.admin.getAvailableSlots(shopId, slotParams) : api.shops.getAvailableSlots(shopId, slotParams),
+      showDetails ? api.admin.getBookings(bookingParams) : Promise.resolve(null),
     ])
       .then(([slotRes, bookingsRes]: any[]) => {
         if (cancelled) return;
@@ -167,7 +167,7 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
       });
 
     return () => { cancelled = true; };
-  }, [shopId, date, duration, numberOfPeople, startTime, gender]);
+  }, [shopId, date, duration, numberOfPeople, startTime, gender, showDetails]);
 
   const isToday = date === localDateStr();
   const firstMin = slots.length ? timeToMin(slots[0].startTime) : 0;
