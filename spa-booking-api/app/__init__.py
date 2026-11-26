@@ -74,7 +74,7 @@ def create_app(config_name=None):
     def prevent_booking_response_cache(response):
         if request.path.startswith((
             '/api/bookings', '/api/booking-access', '/api/admin/bookings',
-            '/api/therapists/bookings',
+            '/api/therapists/bookings', '/api/admin/customer-restrictions',
         )) or (
             request.path.startswith('/api/admin/shops/')
             and request.path.endswith('/available-slots')

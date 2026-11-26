@@ -1,5 +1,6 @@
 from app.blueprints.admin import admin_bp
 from app.models.customer import Customer
+from app.services.customer_service import CustomerService
 from app.utils import success_response
 from app.utils.decorators import role_required
 from app.utils.errors import ResourceNotFound
@@ -15,22 +16,21 @@ def list_customers():
     if phone:
         query = query.filter_by(phone_number=phone)
 
-    blocked = request.args.get('blocked')
-    if blocked == 'true':
-        query = query.filter_by(is_blocked=True)
-    elif blocked == 'false':
-        query = query.filter_by(is_blocked=False)
-
     customers = query.order_by(Customer.created_at.desc()).all()
-
-    data = [{
-        'customerId': c.id,
-        'phoneNumber': c.phone_number,
-        'memberRank': c.member_rank,
-        'visitCount': c.visit_count,
-        'isBlocked': c.is_blocked,
-        'createdAt': c.created_at.strftime('%Y-%m-%d') if c.created_at else None
-    } for c in customers]
+    blocked = request.args.get('blocked')
+    data = []
+    for customer in customers:
+        is_blocked = CustomerService.check_eligibility(customer.phone_number)['isBlocked']
+        if blocked in ('true', 'false') and is_blocked != (blocked == 'true'):
+            continue
+        data.append({
+            'customerId': customer.id,
+            'phoneNumber': customer.phone_number,
+            'memberRank': customer.member_rank,
+            'visitCount': customer.visit_count,
+            'isBlocked': is_blocked,
+            'createdAt': customer.created_at.strftime('%Y-%m-%d') if customer.created_at else None
+        })
 
     return success_response(data)
 
@@ -47,7 +47,7 @@ def get_customer(customer_id):
         'phoneNumber': customer.phone_number,
         'memberRank': customer.member_rank,
         'visitCount': customer.visit_count,
-        'isBlocked': customer.is_blocked,
+        'isBlocked': CustomerService.check_eligibility(customer.phone_number)['isBlocked'],
         'createdAt': customer.created_at.strftime('%Y-%m-%d') if customer.created_at else None
     }
 

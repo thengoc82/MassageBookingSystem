@@ -87,7 +87,7 @@ class BookingService:
                 data, shop_id, number_of_people, duration
             )
 
-            eligibility = CustomerService.check_eligibility(phone_number)
+            eligibility = CustomerService.check_eligibility(phone_number, lock=True)
             if not eligibility['isEligible']:
                 raise BusinessRuleViolation('CUSTOMER_BLOCKED', 'Customer on NG List')
 

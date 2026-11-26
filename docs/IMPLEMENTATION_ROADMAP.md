@@ -70,7 +70,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** Admin JWT protected shift list, detail, create, edit, and delete routes use the existing `TherapistShift` model. The admin schedules page manages shifts and still shows bookings. Shift writes share booking's shop lock, and edits or deletion that uncover future assigned bookings are rejected. See [Task 5 record](progress/task-05.md). No migration was needed.
 
-### 6. Add NG List management — planned
+### 6. Add NG List management — completed
 
 **Depends on:** Task 1's booking eligibility check and Task 4's protected admin operations.
 
@@ -79,6 +79,8 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** `Customer.is_blocked` and active restriction records can disagree. Define which state is authoritative and how reasons and unblock actions appear to the API and UI.
 
 **Verify:** Block with a reason, reject creation for that customer, show the reason, unblock, and then permit a valid booking. Check authorization for every management route.
+
+**Implementation:** Admin JWT protected list, detail, create, update, and soft-remove routes use the existing `CustomerRestriction` model. Active records determine managed blocks; `Customer.is_blocked` is synchronized for existing customer displays and remains an eligibility fallback until a data-only migration converts legacy flag-only blocks. The admin customers page manages active entries and history. Booking creation checks eligibility under the customer lock and still rejects blocked customers with `CUSTOMER_BLOCKED`. See [Task 6 record](progress/task-06.md). No schema change was needed.
 
 ### 7. Complete service discovery and booking options — planned
 

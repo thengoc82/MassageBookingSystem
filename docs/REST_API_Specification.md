@@ -672,20 +672,22 @@ Delete a weekly shift. A shift covering a future assigned booking cannot be remo
 
 ### Customer Restrictions (NG List)
 
+All routes in this section require an admin JWT. Active restriction records determine managed blocks; a legacy `Customer.is_blocked` flag still blocks until the data migration converts it to a record. Removal deactivates an entry and retains its history. Public booking and eligibility responses never include a restriction reason or administrator identity.
+
 ---
 
 ### GET /api/admin/customer-restrictions
 
-Retrieve list of blocked customers.
+Retrieve restriction entries, active by default.
 
-**Query Parameters:** `?phone=01234&page=1&size=20`
+**Query Parameters:** `?phone=01234&status=active|inactive|all&page=1&size=20`. `phone` is a prefix filter; `status` defaults to `active`; `size` is at most 100.
 
 **Response (200):**
 ```json
 {
   "success": true,
   "data": [
-    { "restrictionId": 1, "customerId": 10, "phoneNumber": "0111222333", "reason": "No-show 3 times", "blockedAt": "2026-06-01T10:00:00", "blockedBy": "admin" }
+    { "restrictionId": 1, "customerId": 10, "phoneNumber": "0111222333", "reason": "No-show 3 times", "blockedAt": "2026-06-01T10:00:00", "blockedBy": "admin", "updatedAt": "2026-06-01T10:00:00", "isActive": true }
   ],
   "pagination": { "page": 1, "size": 20, "total": 5, "totalPages": 1 }
 }
@@ -695,7 +697,7 @@ Retrieve list of blocked customers.
 
 ### POST /api/admin/customer-restrictions
 
-Block a customer.
+Block an existing customer. The phone may be in local, `+84`, or `84` form when it matches an existing customer; an active restriction for any matching phone alias causes a conflict. `reason` must be nonblank. A new block after removal creates a new record.
 
 **Request:**
 ```json
@@ -704,10 +706,10 @@ Block a customer.
 
 **Response (201):**
 ```json
-{ "success": true, "data": { "restrictionId": 1 }, "message": "Customer blocked." }
+{ "success": true, "data": { "restrictionId": 1, "customerId": 10, "phoneNumber": "0111222333", "reason": "No-show 3 times", "blockedAt": "2026-06-01T10:00:00", "blockedBy": "admin", "updatedAt": "2026-06-01T10:00:00", "isActive": true }, "message": "Customer blocked" }
 ```
 
-**Errors:** 404 CUSTOMER_NOT_FOUND, 409 CUSTOMER_ALREADY_BLOCKED
+**Errors:** 400 `VALIDATION_ERROR`, 404 `RESOURCE_NOT_FOUND`, 409 `CUSTOMER_ALREADY_BLOCKED` or `RESTRICTION_CONFLICT` (database busy).
 
 ---
 
@@ -715,16 +717,30 @@ Block a customer.
 
 Retrieve restriction detail.
 
+**Response (200):** The same entry shape as the list. **Errors:** 404 `RESOURCE_NOT_FOUND`.
+
 ---
 
 ### PATCH /api/admin/customer-restrictions/{restriction_id}
 
-Update restriction reason or unblock.
+Update the reason or unblock. `isActive` may only be set to `false`; reblocking creates a new entry. An inactive entry remains available in history.
 
 **Request:**
 ```json
 { "reason": "Resolved after payment", "isActive": false }
 ```
+
+**Response (200):** The updated entry. **Errors:** 400 `VALIDATION_ERROR`, 404 `RESOURCE_NOT_FOUND`, 409 `RESTRICTION_CONFLICT`.
+
+---
+
+### DELETE /api/admin/customer-restrictions/{restriction_id}
+
+Remove an entry from the active NG List by setting `isActive` to `false`. The record remains in history. Repeating the request for an inactive entry succeeds.
+
+**Response (200):** `{ "success": true, "data": { "restrictionId": 1 }, "message": "Customer unblocked" }`
+
+**Errors:** 404 `RESOURCE_NOT_FOUND`, 409 `RESTRICTION_CONFLICT`.
 
 ---
 
@@ -877,6 +893,7 @@ GET    /api/admin/customer-restrictions
 POST   /api/admin/customer-restrictions
 GET    /api/admin/customer-restrictions/{restriction_id}
 PATCH  /api/admin/customer-restrictions/{restriction_id}
+DELETE /api/admin/customer-restrictions/{restriction_id}
 
 GET    /api/admin/bookings
 GET    /api/admin/bookings/{booking_id}

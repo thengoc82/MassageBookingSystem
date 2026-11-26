@@ -188,7 +188,20 @@ export const api = {
       const queryString = params ? new URLSearchParams(params).toString() : '';
       return authFetch(`${API_BASE_URL}/admin/customers?${queryString}`);
     },
-    getCustomer: (id: number) => authFetch(`${API_BASE_URL}/admin/customers/${id}`)
+    getCustomer: (id: number) => authFetch(`${API_BASE_URL}/admin/customers/${id}`),
+    getCustomerRestrictions: (params?: { phone?: string; status?: 'active' | 'inactive' | 'all'; page?: number; size?: number }) => {
+      const queryString = params ? new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => [key, String(value)])
+      ).toString() : '';
+      return authFetch(`${API_BASE_URL}/admin/customer-restrictions${queryString ? `?${queryString}` : ''}`);
+    },
+    getCustomerRestriction: (id: number) => authFetch(`${API_BASE_URL}/admin/customer-restrictions/${id}`),
+    createCustomerRestriction: (data: { phoneNumber: string; reason: string }) =>
+      authFetch(`${API_BASE_URL}/admin/customer-restrictions`, { method: 'POST', body: JSON.stringify(data) }),
+    updateCustomerRestriction: (id: number, data: { reason?: string; isActive?: false }) =>
+      authFetch(`${API_BASE_URL}/admin/customer-restrictions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteCustomerRestriction: (id: number) =>
+      authFetch(`${API_BASE_URL}/admin/customer-restrictions/${id}`, { method: 'DELETE' })
   },
 
   therapist: {

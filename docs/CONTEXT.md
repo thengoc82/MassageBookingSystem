@@ -28,7 +28,7 @@ A recurring weekly time block when a Therapist is scheduled to work (e.g., "Mond
 `effectiveFrom` is the first date on which the Shift applies; a Shift has no end date. Admins may create, edit, and delete Shifts. Shifts for the same Therapist and weekday cannot overlap, even when their effective dates differ; adjacent time blocks are allowed. Editing or deleting a Shift is rejected if it would leave an assigned future `Booked` or `CheckedIn` Booking without a covering Shift.
 
 **Customer Restriction** (also called "NG List")
-A block preventing a Customer from making new Bookings. Placed by Admin with a reason. Can be active or inactive.
+A block preventing a Customer from making new Bookings. Placed by Admin with a reason. Can be active or inactive. Active restriction records determine managed blocks; inactive records retain history. Removing an entry deactivates it rather than deleting its record. `Customer.isBlocked` is synchronized for existing customer displays. Eligibility also honors a legacy flag-only block until the Task 6 data migration converts it to a restriction record.
 
 ---
 
@@ -42,7 +42,7 @@ A block preventing a Customer from making new Bookings. Placed by Admin with a r
 | phoneNumber   | Phone number (unique)    |
 | memberRank    | Silver / Gold / Platinum |
 | visitCount    | Number of visits         |
-| isBlocked     | NG List flag             |
+| isBlocked     | NG List display flag, synchronized from active restrictions |
 | createdAt     | Account creation date    |
 
 ### Therapist
@@ -176,6 +176,7 @@ Availability is **optimistic** — shown as it was at query time. Creation reche
 ### Customer
 - Customer is identified by phone number. If new, auto-create on booking.
 - Blocked customers (NG List) cannot create bookings.
+- Admins may add a reasoned restriction for an existing Customer, edit its reason, or deactivate it. A new block after removal creates a new record. The same phone in local and `+84`/`84` forms shares eligibility; existing noncanonical phones retain exact matching. Restriction reasons and history are admin-only. Removing the last active restriction permits new valid Bookings but does not alter existing Bookings.
 
 ### Therapist Assignment
 - **1-person booking:** Can request a therapist via `therapistPreferenceType` + `therapistPreferenceValue`

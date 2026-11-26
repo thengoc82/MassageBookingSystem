@@ -100,3 +100,17 @@ test('shows a booking API error and lets the customer retry', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Service temporarily unavailable');
   expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
 });
+
+test('shows a blocked booking rejection without a confirmation and can retry after removal', async () => {
+  (api.bookings.create as jest.Mock).mockRejectedValueOnce(
+    Object.assign(new Error('Customer on NG List'), { code: 'CUSTOMER_BLOCKED' }));
+  render(<BookingForm context={context} />);
+  await screen.findByText('Shinjuku Store');
+  fillBooking();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Customer on NG List');
+  expect(screen.queryByText('Booking confirmed')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Confirm Booking' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  expect(await screen.findByText('Booking confirmed')).toBeInTheDocument();
+});
