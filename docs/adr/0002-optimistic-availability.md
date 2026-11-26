@@ -1,6 +1,6 @@
 # Optimistic availability — no reservation holds
 
-Reservations have been removed entirely. The booking flow no longer creates a time-limited hold on capacity. Instead, availability is treated as **optimistic**: it's shown as it was at query time, and the actual check happens atomically at booking creation under row-level locks (`FOR UPDATE SKIP LOCKED`).
+Reservations have been removed entirely. The booking flow no longer creates a time-limited hold on capacity. Instead, availability is treated as **optimistic**: it's shown as it was at query time, and the actual check happens atomically at booking creation. The database-specific locking strategy is recorded in [ADR 0003](0003-atomic-therapist-assignment.md).
 
 ## Context
 
@@ -10,7 +10,7 @@ Previously, the system had a two-phase flow: select → reserve (5-min hold) →
 
 - Remove the `Reservation` model, service, blueprint, and cleanup task.
 - `POST /api/bookings` now accepts all booking data directly (shopId, bookingDate, startTime, duration, numberOfPeople, services, phoneNumber, therapistPreference).
-- The service method atomically selects available therapists using `FOR UPDATE SKIP LOCKED`, preventing double-booking at the database level.
+- The service method rechecks and assigns therapists in one database transaction. [ADR 0003](0003-atomic-therapist-assignment.md) supersedes the original `FOR UPDATE SKIP LOCKED` implementation assumption for SQLite.
 - If no therapist is available at confirm time, the system returns `SLOT_UNAVAILABLE` or `INSUFFICIENT_THERAPISTS` errors. The frontend then refreshes availability and suggests nearby slots.
 
 ## Consequences

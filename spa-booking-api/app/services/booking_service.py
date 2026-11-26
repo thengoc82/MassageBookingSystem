@@ -3,15 +3,17 @@ import random
 import string
 from datetime import datetime, timedelta
 
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import selectinload
+
 from app.extensions import db
 from app.models.booking import Booking, BookingAddon, BookingTherapist
 from app.models.booking import BookingService as BookingServiceModel
 from app.models.course import Course
 from app.models.shop import Shop
-from app.models.therapist import Therapist
 from app.services.customer_service import CustomerService
 from app.services.therapist_service import TherapistService
-from app.utils.errors import BusinessRuleViolation, ResourceNotFound, ValidationError
+from app.utils.errors import APIError, BusinessRuleViolation, ResourceNotFound, ValidationError
 
 
 class BookingService:
@@ -53,13 +55,6 @@ class BookingService:
         end_datetime = start_datetime + timedelta(minutes=duration)
         end_time = end_datetime.time()
 
-        shop = db.session.get(Shop, shop_id)
-        if not shop:
-            raise ResourceNotFound('Shop')
-        if (shop.status != 'Open' or start_time < shop.open_time
-                or end_datetime.date() != booking_date or end_time > shop.close_time):
-            raise BusinessRuleViolation('SHOP_CLOSED', 'Shop is not open for the requested time')
-
         therapist_preference_type = data.get('therapistPreferenceType')
         therapist_preference_value = data.get('therapistPreferenceValue')
         if therapist_preference_type not in (None, 'no_preference', 'specific', 'gender'):
@@ -77,79 +72,66 @@ class BookingService:
         elif therapist_preference_value is not None:
             raise ValidationError('therapistPreferenceValue requires a therapist preference')
 
-        service_data, addon_data = BookingService._validate_course_selection(
-            data, shop_id, number_of_people, duration
-        )
-
-        eligibility = CustomerService.check_eligibility(phone_number)
-        if not eligibility['isEligible']:
-            raise BusinessRuleViolation('CUSTOMER_BLOCKED', 'Customer on NG List')
-
         try:
+            # On SQLite, this acquires the write lock before any database read
+            # that affects assignment. A competing create waits and rechecks.
+            shop = BookingService._lock_shop_for_booking(shop_id)
+            if not shop:
+                raise ResourceNotFound('Shop')
+            if (shop.status != 'Open' or start_time < shop.open_time
+                    or end_datetime.date() != booking_date or end_time > shop.close_time):
+                raise BusinessRuleViolation('SHOP_CLOSED', 'Shop is not open for the requested time')
+
+            service_data, addon_data = BookingService._validate_course_selection(
+                data, shop_id, number_of_people, duration
+            )
+
+            eligibility = CustomerService.check_eligibility(phone_number)
+            if not eligibility['isEligible']:
+                raise BusinessRuleViolation('CUSTOMER_BLOCKED', 'Customer on NG List')
 
             assigned_therapist = None
             assigned_therapists = []
+            available_therapists = TherapistService.find_available_therapists(
+                shop_id, booking_date, start_time, end_time
+            )
 
             if number_of_people == 1 and therapist_preference_type == 'specific' and therapist_preference_value:
-                try:
-                    therapist_id = int(therapist_preference_value)
-                    therapist = db.session.query(Therapist).filter(
-                        Therapist.id == therapist_id,
-                        Therapist.shop_id == shop_id,
-                        Therapist.status == 'active'
-                    ).with_for_update(skip_locked=True).first()
-
-                    if not therapist:
-                        raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'Requested therapist is no longer available')
-
-                    if (not TherapistService._has_shift_coverage(therapist.id, booking_date, start_time, end_time)
-                            or not BookingService._is_therapist_free(therapist.id, booking_date, start_time, end_time)):
-                        raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'Requested therapist is no longer available at this time')
-
-                    assigned_therapist = therapist
-                    assigned_therapists.append((1, therapist))
-
-                except ValueError:
-                    raise ValidationError('Invalid therapist ID')
+                therapist_id = int(therapist_preference_value)
+                selected_therapists = [
+                    t for t in available_therapists if t.id == therapist_id
+                ]
+                if not selected_therapists:
+                    raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'Requested therapist is no longer available at this time')
 
             elif number_of_people == 1 and therapist_preference_type == 'gender' and therapist_preference_value:
-                therapist = BookingService._lock_available_therapist_by_gender(
-                    shop_id, booking_date, start_time, end_time,
-                    therapist_preference_value
-                )
-                if not therapist:
+                candidates = [
+                    t for t in available_therapists if t.gender == therapist_preference_value
+                ]
+                if not candidates:
                     raise BusinessRuleViolation('SLOT_UNAVAILABLE', f'No {therapist_preference_value} therapist available at this time')
-                assigned_therapist = therapist
-                assigned_therapists.append((1, therapist))
+                selected_therapists = BookingService._rank_by_daily_workload(
+                    candidates, booking_date
+                )[:1]
 
             elif number_of_people == 1 and (not therapist_preference_type or therapist_preference_type == 'no_preference'):
-                therapist = BookingService._lock_least_loaded_therapist(
-                    shop_id, booking_date, start_time, end_time
-                )
-                if not therapist:
+                if not available_therapists:
                     raise BusinessRuleViolation('SLOT_UNAVAILABLE', 'No therapist is available at this time')
-                assigned_therapist = therapist
-                assigned_therapists.append((1, therapist))
+                selected_therapists = BookingService._rank_by_daily_workload(
+                    available_therapists, booking_date
+                )[:1]
 
             else:
-                # For multi-person bookings (2-3), use random assignment without replacement
-                # Slot search has already guaranteed enough available therapists
-                available_therapists = BookingService._get_available_therapists_for_slot(
-                    shop_id, booking_date, start_time, end_time
-                )
-
                 if len(available_therapists) < number_of_people:
                     raise BusinessRuleViolation('INSUFFICIENT_THERAPISTS',
                         f'Need {number_of_people} therapists, only {len(available_therapists)} available')
+                selected_therapists = BookingService._rank_by_daily_workload(
+                    available_therapists, booking_date
+                )[:number_of_people]
 
-                # Randomly select groupSize therapists without replacement
-                selected_therapists = random.sample(available_therapists, number_of_people)
-
-                # Assign each therapist to a person (1-indexed)
-                for person_idx, therapist in enumerate(selected_therapists, start=1):
-                    assigned_therapists.append((person_idx, therapist))
-                    if assigned_therapist is None:
-                        assigned_therapist = therapist
+            for person_idx, therapist in enumerate(selected_therapists, start=1):
+                assigned_therapists.append((person_idx, therapist))
+            assigned_therapist = selected_therapists[0]
 
             customer = CustomerService.find_or_create(phone_number)
 
@@ -208,9 +190,16 @@ class BookingService:
             db.session.commit()
             return booking
 
-        except (BusinessRuleViolation, ValidationError, ResourceNotFound):
+        except APIError:
             db.session.rollback()
             raise
+        except OperationalError as e:
+            db.session.rollback()
+            if db.engine.dialect.name == 'sqlite' and any(
+                marker in str(e.orig).lower() for marker in ('locked', 'busy')
+            ):
+                raise APIError('BOOKING_CONFLICT', 'Booking capacity is busy; please try again', 409)
+            raise BusinessRuleViolation('BOOKING_FAILED', f'Failed to create booking: {str(e)}')
         except Exception as e:
             db.session.rollback()
             raise BusinessRuleViolation('BOOKING_FAILED', f'Failed to create booking: {str(e)}')
@@ -290,107 +279,34 @@ class BookingService:
         return services, addons
 
     @staticmethod
-    def _lock_least_loaded_therapist(shop_id, date, start_time, end_time):
-        therapist = db.session.query(
-            Therapist,
-            db.func.coalesce(db.func.sum(
-                db.func.extract('epoch', Booking.end_time) - db.func.extract('epoch', Booking.start_time)
-            ), 0).label('workload')
+    def _lock_shop_for_booking(shop_id):
+        if db.engine.dialect.name == 'sqlite':
+            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            return db.session.get(Shop, shop_id)
+        # All create requests for a shop use the same row as their lock.
+        return Shop.query.filter_by(id=shop_id).with_for_update().first()
+
+    @staticmethod
+    def _rank_by_daily_workload(therapists, date):
+        workload = {therapist.id: 0 for therapist in therapists}
+        bookings = db.session.query(Booking).options(
+            selectinload(Booking.booking_therapists)
         ).filter(
-            Therapist.shop_id == shop_id,
-            Therapist.status == 'active'
-        ).outerjoin(
-            Booking,
-            db.and_(
-                Booking.therapist_id == Therapist.id,
-                Booking.booking_date == date,
-                Booking.status.in_(['Booked', 'CheckedIn'])
-            )
-        ).group_by(Therapist.id).order_by(
-            db.text('workload ASC'),
-            Therapist.id.asc()
-        ).with_for_update(skip_locked=True).all()
-
-        for candidate in therapist:
-            if (TherapistService._has_shift_coverage(candidate.Therapist.id, date, start_time, end_time)
-                    and BookingService._is_therapist_free(candidate.Therapist.id, date, start_time, end_time)):
-                return candidate.Therapist
-        return None
-
-    @staticmethod
-    def _lock_available_therapist_by_gender(shop_id, date, start_time, end_time, gender):
-        therapist = db.session.query(
-            Therapist,
-            db.func.coalesce(db.func.sum(
-                db.func.extract('epoch', Booking.end_time) - db.func.extract('epoch', Booking.start_time)
-            ), 0).label('workload')
-        ).filter(
-            Therapist.shop_id == shop_id,
-            Therapist.status == 'active',
-            Therapist.gender == gender
-        ).outerjoin(
-            Booking,
-            db.and_(
-                Booking.therapist_id == Therapist.id,
-                Booking.booking_date == date,
-                Booking.status.in_(['Booked', 'CheckedIn'])
-            )
-        ).group_by(Therapist.id).order_by(
-            db.text('workload ASC'),
-            Therapist.id.asc()
-        ).with_for_update(skip_locked=True).all()
-
-        for candidate in therapist:
-            if (TherapistService._has_shift_coverage(candidate.Therapist.id, date, start_time, end_time)
-                    and BookingService._is_therapist_free(candidate.Therapist.id, date, start_time, end_time)):
-                return candidate.Therapist
-        return None
-
-    @staticmethod
-    def _get_available_therapists_for_slot(shop_id, date, start_time, end_time):
-        all_therapists = Therapist.query.filter_by(shop_id=shop_id, status='active').all()
-        available = []
-
-        for therapist in all_therapists:
-            if (TherapistService._has_shift_coverage(therapist.id, date, start_time, end_time)
-                    and BookingService._is_therapist_free(therapist.id, date, start_time, end_time)):
-                available.append(therapist)
-
-        return available
-
-    @staticmethod
-    def _count_available_therapists(shop_id, date, start_time, end_time):
-        return len(BookingService._get_available_therapists_for_slot(shop_id, date, start_time, end_time))
-
-    @staticmethod
-    def _is_therapist_free(therapist_id, date, start_time, end_time):
-        overlapping = db.session.query(Booking).filter(
-            Booking.therapist_id == therapist_id,
+            Booking.shop_id == therapists[0].shop_id,
             Booking.booking_date == date,
             Booking.status.in_(['Booked', 'CheckedIn']),
-            db.or_(
-                db.and_(Booking.start_time < end_time, Booking.end_time > start_time)
-            )
-        ).count()
-
-        if overlapping > 0:
-            return False
-
-        overlapping_bt = db.session.query(BookingTherapist).join(
-            Booking, Booking.id == BookingTherapist.booking_id
-        ).filter(
-            BookingTherapist.therapist_id == therapist_id,
-            Booking.booking_date == date,
-            Booking.status.in_(['Booked', 'CheckedIn']),
-            db.or_(
-                db.and_(Booking.start_time < end_time, Booking.end_time > start_time)
-            )
-        ).count()
-
-        if overlapping_bt > 0:
-            return False
-
-        return True
+        ).all()
+        for booking in bookings:
+            minutes = max(0, int((
+                datetime.combine(date, booking.end_time)
+                - datetime.combine(date, booking.start_time)
+            ).total_seconds() // 60))
+            assigned_ids = {bt.therapist_id for bt in booking.booking_therapists}
+            if booking.therapist_id:
+                assigned_ids.add(booking.therapist_id)
+            for therapist_id in assigned_ids & workload.keys():
+                workload[therapist_id] += minutes
+        return sorted(therapists, key=lambda therapist: (workload[therapist.id], therapist.id))
 
     @staticmethod
     def _call_pos_api(booking):

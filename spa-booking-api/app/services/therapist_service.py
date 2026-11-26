@@ -10,81 +10,68 @@ class TherapistService:
 
     @staticmethod
     def find_available_therapists(shop_id, date, start_time, end_time):
-        all_therapists = Therapist.query.filter_by(
-            shop_id=shop_id,
-            status='active'
-        ).all()
-
-        available = []
-        for therapist in all_therapists:
-            if TherapistService.is_available(therapist.id, date, start_time, end_time):
-                available.append(therapist)
-
-        return available
+        available_ids = TherapistService._available_therapist_ids(
+            shop_id, date, start_time, end_time
+        )
+        if not available_ids:
+            return []
+        return Therapist.query.filter(
+            Therapist.id.in_(available_ids)
+        ).order_by(Therapist.id).all()
 
     @staticmethod
     def count_available_capacity(shop_id, date, start_time, end_time):
-        total = TherapistService._count_active_therapists(shop_id, date, start_time, end_time)
+        return len(TherapistService._available_therapist_ids(
+            shop_id, date, start_time, end_time
+        ))
 
-        booked = Booking.query.filter(
+    @staticmethod
+    def _available_therapist_ids(shop_id, date, start_time, end_time):
+        day_of_week = date.strftime('%A')
+        covering_ids = {
+            therapist_id for (therapist_id,) in db.session.query(
+                TherapistShift.therapist_id
+            ).join(Therapist).filter(
+                Therapist.shop_id == shop_id,
+                Therapist.status == 'active',
+                TherapistShift.day_of_week == day_of_week,
+                TherapistShift.effective_from <= date,
+                TherapistShift.start_time <= start_time,
+                TherapistShift.end_time >= end_time,
+            ).distinct().all()
+        }
+        if not covering_ids:
+            return set()
+
+        overlap = (
             Booking.shop_id == shop_id,
             Booking.booking_date == date,
             Booking.status.in_(['Booked', 'CheckedIn']),
-            db.or_(
-                db.and_(Booking.start_time < end_time, Booking.end_time > start_time)
-            )
-        ).count()
-
-        return total - booked
-
-    @staticmethod
-    def _count_active_therapists(shop_id, date, start_time, end_time):
-        day_of_week = date.strftime('%A')
-        return TherapistShift.query.join(Therapist).filter(
-            Therapist.shop_id == shop_id,
-            Therapist.status == 'active',
-            TherapistShift.day_of_week == day_of_week,
-            TherapistShift.effective_from <= date,
-            TherapistShift.start_time <= start_time,
-            TherapistShift.end_time >= end_time
-        ).count()
+            Booking.start_time < end_time,
+            Booking.end_time > start_time,
+        )
+        # The legacy pointer and per-guest rows describe assignments to the same
+        # booking. A set counts each occupied therapist only once.
+        occupied_ids = {
+            therapist_id for (therapist_id,) in db.session.query(
+                Booking.therapist_id
+            ).filter(*overlap, Booking.therapist_id.isnot(None)).all()
+        }
+        occupied_ids.update(
+            therapist_id for (therapist_id,) in db.session.query(
+                BookingTherapist.therapist_id
+            ).join(Booking, Booking.id == BookingTherapist.booking_id).filter(
+                *overlap
+            ).all()
+        )
+        return covering_ids - occupied_ids
 
     @staticmethod
     def is_available(therapist_id, date, start_time, end_time):
-        if not TherapistService._has_shift_coverage(therapist_id, date, start_time, end_time):
-            return False
-
-        overlapping_bookings = db.session.query(BookingTherapist).join(
-            Booking, Booking.id == BookingTherapist.booking_id
-        ).filter(
-            BookingTherapist.therapist_id == therapist_id,
-            Booking.booking_date == date,
-            Booking.status.in_(['Booked', 'CheckedIn']),
-            db.or_(
-                db.and_(Booking.start_time < end_time, Booking.end_time > start_time)
-            )
-        ).count()
-
-        return overlapping_bookings == 0
-
-    @staticmethod
-    def _has_shift_coverage(therapist_id, date, start_time, end_time):
-        day_of_week = date.strftime('%A')
-
-        shifts = TherapistShift.query.filter(
-            TherapistShift.therapist_id == therapist_id,
-            TherapistShift.day_of_week == day_of_week,
-            TherapistShift.effective_from <= date
-        ).all()
-
-        if not shifts:
-            return False
-
-        for shift in shifts:
-            if shift.start_time <= start_time and shift.end_time >= end_time:
-                return True
-
-        return False
+        therapist = db.session.get(Therapist, therapist_id)
+        return bool(therapist and therapist.id in TherapistService._available_therapist_ids(
+            therapist.shop_id, date, start_time, end_time
+        ))
 
     @staticmethod
     def get_available_therapists(shop_id, date, start_time, duration=None, gender=None):
@@ -106,14 +93,16 @@ class TherapistService:
         if gender:
             therapists = therapists.filter(Therapist.gender == gender)
 
+        available_ids = TherapistService._available_therapist_ids(
+            shop_id, date_obj, start, end
+        )
         result = []
         for therapist in therapists.all():
-            available = TherapistService.is_available(therapist.id, date_obj, start, end)
             result.append({
                 'therapistId': therapist.id,
                 'name': therapist.name,
                 'gender': therapist.gender,
-                'isAvailable': available
+                'isAvailable': therapist.id in available_ids
             })
 
         return result

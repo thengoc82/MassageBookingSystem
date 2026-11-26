@@ -163,7 +163,7 @@ Person using the booking system. No authentication required — identified by ph
    - Suggests nearest available slots
    - Customer chooses again
 
-Availability is **optimistic** — shown as it was at query time. Creation rechecks therapist availability. The row-level locking guarantee in ADR 0002 is still pending for SQLite and group assignment; see the next implementation task.
+Availability is **optimistic** — shown as it was at query time. Creation rechecks therapist availability inside a database transaction. SQLite creation acquires a write transaction before reading availability; see [ADR 0003](adr/0003-atomic-therapist-assignment.md).
 
 ---
 
@@ -177,10 +177,11 @@ Availability is **optimistic** — shown as it was at query time. Creation reche
 - **1-person booking:** Can request a therapist via `therapistPreferenceType` + `therapistPreferenceValue`
   (`specific` + therapist id, `gender` + `Male`/`Female`, or `no_preference`). The service rechecks
   that therapist's shift and availability at confirm time for `specific`.
-- **Group (2+):** Cannot request a specific therapist or therapist gender. System assigns one available therapist per guest. Least-loaded, concurrency-safe assignment remains a separate implementation task.
+- **Group (2+):** Cannot request a specific therapist or therapist gender. System assigns one distinct available therapist per guest, ordered by the fewest booked minutes on that date and then therapist ID.
 - Therapist must belong to the same Shop as the Booking.
 - Therapist must be on an active Shift covering the Booking time.
 - Therapist must have no overlapping Booking.
+- Slot capacity and creation use distinct active therapists with covering Shifts, excluding therapists occupied by overlapping `Booked` or `CheckedIn` Bookings. Occupancy includes per-guest assignments and the legacy `Booking.therapist_id` pointer without double-counting.
 
 ### Service Assignment
 Each person in a Booking receives the same sequence of 1 or more selected main Courses + 0 to N addon Courses. This preserves the existing multiple-main-course booking flow. The selected durations and prices can be submitted as `selectedCourses` in booking preferences because `services` contains only `personIndex` and `courseId`. For a single course, the reserved duration can identify its catalog option; for courses with one option, that option is unambiguous. Otherwise `selectedCourses` is required. Every submitted option must match the active course catalog. The selected durations sum to the reserved duration for each guest; total price is the per-guest course sum multiplied by guest count.

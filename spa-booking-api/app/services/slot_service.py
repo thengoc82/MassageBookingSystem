@@ -47,9 +47,10 @@ class SlotService:
             st = current_time.time()
             et = end_time.time()
 
-            available_capacity = TherapistService.count_available_capacity(
+            available_therapists = TherapistService.find_available_therapists(
                 shop_id, date_obj, st, et
             )
+            available_capacity = len(available_therapists)
 
             slot = {
                 'startTime': current_time.strftime('%H:%M'),
@@ -58,11 +59,7 @@ class SlotService:
             }
 
             if show_therapists:
-                available_ids = []
-                for t in all_therapists:
-                    if TherapistService.is_available(t.id, date_obj, st, et):
-                        available_ids.append(t.id)
-                slot['availableTherapistIds'] = available_ids
+                slot['availableTherapistIds'] = [t.id for t in available_therapists]
 
             if available_capacity >= number_of_people or show_therapists:
                 slots.append(slot)
@@ -95,10 +92,9 @@ class SlotService:
                 bt_map[bt.booking_id].append(bt)
 
             for b in bookings_q:
-                booking_therapist_ids = [bt.therapist_id for bt in bt_map.get(b.id, [])]
-                # TODO: remove this fallback after a complete BookingTherapist backfill migration
-                if not booking_therapist_ids and b.therapist_id:
-                    booking_therapist_ids = [b.therapist_id]
+                booking_therapist_ids = {bt.therapist_id for bt in bt_map.get(b.id, [])}
+                if b.therapist_id:
+                    booking_therapist_ids.add(b.therapist_id)
 
                 sorted_services = sorted(b.services, key=lambda s: s.person_index) if b.services else []
                 course_name = sorted_services[0].course.name if sorted_services and sorted_services[0].course else None
