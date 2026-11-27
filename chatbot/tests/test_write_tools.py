@@ -99,11 +99,11 @@ async def test_modify_booking_uses_supported_patch_route() -> None:
 
 @pytest.mark.asyncio
 async def test_modify_booking_rejects_fields_flask_ignores() -> None:
-    from chatbot.gateway.errors import ChatbotError
+    from pydantic import ValidationError
     from chatbot.models import ModifyBookingRequest
 
     client = AsyncMock(spec=HTTPClient)
-    with pytest.raises(ChatbotError):
+    with pytest.raises(ValidationError):
         await ModifyBookingTool(client).execute(
             ModifyBookingRequest(bookingId=7, numberOfPeople=3, accessToken="verified-token")
         )

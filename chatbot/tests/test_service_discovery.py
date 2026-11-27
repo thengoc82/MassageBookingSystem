@@ -88,3 +88,35 @@ async def test_chat_asks_for_price_when_duration_has_two_catalog_prices():
     assert 'date' in chosen.message.lower()
     state = ConversationState(**sessions['s1'].conversation_state)
     assert state.booking_context.selected_course_options[0]['price'] == 3500
+
+
+@pytest.mark.asyncio
+async def test_duration_correction_cannot_confirm_stale_multi_course_draft():
+    sessions = {}
+    endpoint, _ = make_endpoint(sessions, courses=CATALOG)
+
+    async def send(message):
+        return await endpoint.process_message(ChatRequest(message=message, session_id='s1'))
+
+    await send('book a massage')
+    await send('Shinjuku Store')
+    await send('Main Massage 30m')
+    await send('add Second Massage 15 min 1,500 VND')
+    await send('add Head Extra 15 min 500 VND')
+    state = ConversationState(**sessions['s1'].conversation_state)
+    state.booking_context.date = date.today().isoformat()
+    state.booking_context.start_time = '10:00'
+    state.booking_context.number_of_people = 2
+    state.booking_context.phone_number = '0901234567'
+    state.phase = ConversationPhase.COLLECTING_PHONE
+    endpoint._prepare_booking_confirmation(state, Conversation())
+    sessions['s1'].conversation_state = state.model_dump()
+
+    reply = await send('Actually make it 90 minutes for 3 people')
+
+    revised = ConversationState(**sessions['s1'].conversation_state)
+    assert 'change the course selection' in reply.message
+    assert revised.pending_action is None
+    assert revised.booking_context.duration == 60
+    assert revised.booking_context.number_of_people == 2
+    assert len(revised.booking_context.selected_course_options) == 3

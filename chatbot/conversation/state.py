@@ -51,7 +51,7 @@ class BookingContext(BaseModel):
     number_of_people: int | None = None
     therapist_id: int | None = None
     therapist_preference_type: str | None = None
-    therapist_preference_value: str | None = None
+    therapist_preference_value: int | str | None = None
     phone_number: str | None = None
     booking_code: str | None = None
 
@@ -67,6 +67,9 @@ class ConversationState(BaseModel):
     lookup_awaiting_phone: bool = False
     lookup_pending_phone: str | None = None
     lookup_access_token: str | None = None
+    management_action: str | None = None
+    management_booking_id: int | None = None
+    management_booking_code: str | None = None
     last_tool_result: dict | None = None
     offered_slot_time: str | None = None
     slot_confirmed: bool = False
@@ -76,11 +79,20 @@ class ConversationState(BaseModel):
 
     def booking_progress(self) -> dict[str, Any]:
         """Return the customer-facing progress from the saved draft."""
+        if self.pending_action and self.pending_action.tool_name in {"modifyBooking", "cancelBooking"}:
+            return {
+                "active": True,
+                "stage": "confirmation",
+                "details": {"booking_code": self.management_booking_code} if self.management_booking_code else {},
+                "missing": [],
+                "requires_confirmation": self.pending_action.status == "pending",
+            }
         stages = {
             ConversationPhase.SEARCHING_SHOPS: "shop",
             ConversationPhase.SEARCHING_COURSES: "service",
             ConversationPhase.COLLECTING_INFO: "details",
             ConversationPhase.SEARCHING_SLOTS: "time",
+            ConversationPhase.SELECTING_THERAPIST: "therapist",
             ConversationPhase.COLLECTING_PHONE: "contact",
             ConversationPhase.CONFIRMING_ACTION: "confirmation",
             ConversationPhase.BOOKING_COMPLETE: "complete",
@@ -94,7 +106,7 @@ class ConversationState(BaseModel):
             "date": ctx.date,
             "duration": ctx.duration,
             "people": ctx.number_of_people,
-            "time": ctx.start_time if stage in {"contact", "confirmation", "complete", "verification"} else None,
+            "time": ctx.start_time if stage in {"therapist", "contact", "confirmation", "complete", "verification"} else None,
             "time_preference": ctx.time_preference,
             "phone": ctx.phone_number,
             "booking_code": ctx.booking_code,
@@ -104,7 +116,7 @@ class ConversationState(BaseModel):
                 ("shop", ctx.shop_id), ("service", ctx.course_id),
                 ("duration", ctx.duration), ("date", ctx.date),
                 ("people", ctx.number_of_people),
-                ("time", ctx.start_time if stage in {"contact", "confirmation", "complete", "verification"} else None),
+                ("time", ctx.start_time if stage in {"therapist", "contact", "confirmation", "complete", "verification"} else None),
                 ("phone", ctx.phone_number),
             ) if value is None
         ]
@@ -289,6 +301,13 @@ class ConversationManager:
         state.booking_context = BookingContext()
         state.pending_action = None
         state.lookup_code = None
+        state.lookup_phone = None
+        state.lookup_awaiting_phone = False
+        state.lookup_pending_phone = None
+        state.lookup_access_token = None
+        state.management_action = None
+        state.management_booking_id = None
+        state.management_booking_code = None
         state.last_tool_result = None
         state.offered_slot_time = None
         state.slot_confirmed = False

@@ -228,6 +228,10 @@ class CreateBookingResponse(BaseModel):
     success: bool
     bookingId: int | None = None
     bookingCode: str | None = None
+    status: str | None = None
+    therapistId: int | None = None
+    therapistName: str | None = None
+    therapistAssignments: list[dict] = Field(default_factory=list)
     message: str | None = None
 
 
@@ -245,19 +249,15 @@ class ModifyBookingAddOn(BaseModel):
 class ModifyBookingRequest(BaseModel):
     bookingId: int
     accessToken: str | None = Field(default=None, repr=False)
-    shopId: int | None = None
     bookingDate: date | None = None
     startTime: time | None = None
-    numberOfPeople: int | None = None
-    services: list[ModifyBookingService] | None = None
-    addOns: list[ModifyBookingAddOn] | None = None
-    therapistId: int | None = None
-    therapistGender: str | None = Field(default=None, pattern="^(Male|Female)$")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ModifyBookingResponse(BaseModel):
     success: bool
     bookingId: int | None = None
+    status: str | None = None
     message: str | None = None
 
 
@@ -265,10 +265,11 @@ class ModifyBookingResponse(BaseModel):
 class CancelBookingRequest(BaseModel):
     bookingId: int
     accessToken: str | None = Field(default=None, repr=False)
-    reason: str | None = None
+    model_config = ConfigDict(extra="forbid")
 
 
 class CancelBookingResponse(BaseModel):
     success: bool
     bookingId: int | None = None
+    status: str | None = None
     message: str | None = None

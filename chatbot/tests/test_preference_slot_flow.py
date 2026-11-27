@@ -7,7 +7,7 @@ import pytest
 from chatbot.app.chat_endpoint import ChatEndpoint, ChatRequest
 from chatbot.conversation.booking_details import local_today
 from chatbot.conversation.state import BookingContext, ConversationPhase, ConversationState
-from chatbot.gateway.errors import TimeSlotUnavailableError
+from chatbot.gateway.errors import GatewayTimeoutError, TimeSlotUnavailableError, map_flask_error
 from chatbot.models import CreateBookingRequest, CreateBookingResponse, SearchAvailableSlotsResponse
 from chatbot.session.store import SessionData
 from chatbot.tools.write_tools import CreateBookingTool
@@ -513,4 +513,40 @@ async def test_confirmed_booking_uses_existing_pos_tool() -> None:
         {"personIndex": 1, "courseId": 7},
         {"personIndex": 2, "courseId": 7},
     ]
+    assert saved_state(sessions).booking_context.shop_id == 1
+
+
+@pytest.mark.asyncio
+async def test_busy_flask_write_refresh_failure_never_claims_success() -> None:
+    endpoint, sessions, slots_tool, create_tool = make_endpoint(slot_response(("17:00", 2)))
+    slots_tool.execute.side_effect = [
+        slot_response(("17:00", 2)), slot_response(("17:00", 2)), GatewayTimeoutError(),
+    ]
+    create_tool.execute.side_effect = map_flask_error(409, "BOOKING_CONFLICT", "Booking capacity is busy")
+    await send(endpoint, "5pm")
+    await send(endpoint, "yes")
+    await send(endpoint, "0901234567")
+
+    reply = await send(endpoint, "yes")
+
+    assert reply.phase == ConversationPhase.SEARCHING_SLOTS
+    assert "not completed" in reply.message
+    assert saved_state(sessions).pending_action is None
+    assert saved_state(sessions).booking_context.phone_number == "0901234567"
+    create_tool.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_flask_validation_rejection_keeps_draft_without_success() -> None:
+    endpoint, sessions, _, create_tool = make_endpoint(slot_response(("17:00", 2)))
+    create_tool.execute.side_effect = map_flask_error(400, "VALIDATION_ERROR", "Selected course is unavailable")
+    await send(endpoint, "5pm")
+    await send(endpoint, "yes")
+    await send(endpoint, "0901234567")
+
+    reply = await send(endpoint, "yes")
+
+    assert reply.phase == ConversationPhase.COLLECTING_INFO
+    assert "not created" in reply.message
+    assert saved_state(sessions).pending_action is None
     assert saved_state(sessions).booking_context.shop_id == 1

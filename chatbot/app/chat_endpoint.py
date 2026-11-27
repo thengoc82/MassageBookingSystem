@@ -38,11 +38,13 @@ from chatbot.knowledge import (
     SentenceTransformerEmbeddingService,
 )
 from chatbot.models import (
+    CancelBookingRequest,
     CheckEligibilityRequest,
     CourseInfo,
     CreateBookingRequest,
     FAQSearchRequest,
     LookupBookingRequest,
+    ModifyBookingRequest,
     SearchAvailableSlotsRequest,
     SearchAvailableSlotsResponse,
     SearchCoursesRequest,
@@ -490,6 +492,8 @@ class ChatEndpoint:
                 lookup_reply = bool(state.lookup_awaiting_phone and re.search(r"(?<!\d)\d{9,11}(?!\d)", request.message))
                 if state.lookup_pending_phone and re.fullmatch(r"\s*\d{6}\s*", request.message):
                     response = await self._verify_lookup_code(request.message.strip(), state, conversation, metrics)
+                elif classified.intent in {IntentType.CANCEL_BOOKING, IntentType.MODIFY_BOOKING} and state.phase != ConversationPhase.CONFIRMING_ACTION:
+                    response = await self._start_booking_management(classified.intent, request.message, state, conversation, metrics)
                 elif informational:
                     response = await self._run_faq(
                         request.message, state, conversation, metrics
@@ -506,7 +510,9 @@ class ChatEndpoint:
                     conversation.add_message("assistant", msg)
                     response = IntentResponse(False, msg, state, conversation)
                 else:
-                    response = await self._handle_extra_course_reply(request.message, state, conversation)
+                    response = await self._handle_management_reply(request.message, state, conversation)
+                    if response is None:
+                        response = await self._handle_extra_course_reply(request.message, state, conversation)
                     if response is None:
                         details = await self._extract_turn_details(request.message, state, classified)
                         response = await self._apply_booking_revision(
@@ -516,6 +522,8 @@ class ChatEndpoint:
                             response = await self._handle_booking_confirmation_reply(
                                 request.message, state, conversation
                             )
+                if response is None:
+                    response = await self._handle_therapist_reply(request.message, state, conversation)
                 if response is None:
                     response = await self._handle_phone_reply(request.message, state, conversation)
                 if response is None:
@@ -618,6 +626,8 @@ class ChatEndpoint:
             ctx.catalog_courses = []
             ctx.selected_course_options = []
             ctx.primary_price = None
+            ctx.therapist_preference_type = None
+            ctx.therapist_preference_value = None
             ctx.duration = None
             state.phase = ConversationPhase.SEARCHING_COURSES
             return await self._run_search_courses(state, conversation, metrics)
@@ -691,6 +701,8 @@ class ChatEndpoint:
             ctx.catalog_courses = []
             ctx.selected_course_options = []
             ctx.primary_price = None
+            ctx.therapist_preference_type = None
+            ctx.therapist_preference_value = None
             state.pending_action = None
             state.offered_slot_time = None
             state.slot_confirmed = False
@@ -719,6 +731,45 @@ class ChatEndpoint:
             return await self._run_search_courses(
                 state, conversation, get_metrics(), selection_message=message,
             )
+
+        if active and ctx.number_of_people == 1 and ctx.start_time and re.search(
+            r"\b(?:change|switch|different|another)\b.*\b(?:therapist|gender)\b",
+            lower,
+        ):
+            state.pending_action = None
+            ctx.therapist_preference_type = None
+            ctx.therapist_preference_value = None
+            try:
+                fresh = await self._fetch_available_slots(state)
+            except ChatbotError:
+                msg = "I couldn't refresh therapist choices. Please try again."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            state.last_tool_result = fresh.model_dump(mode="json")
+            state.phase = ConversationPhase.SEARCHING_SLOTS
+            if ctx.start_time not in {
+                item.startTime.strftime("%H:%M") for item in self._available_slots(state)
+            }:
+                state.slot_confirmed = False
+                return self._suggest_slot_reply(state, conversation, "That time is no longer available.")
+            state.phase = ConversationPhase.SELECTING_THERAPIST
+            return self._offer_therapist_choice(state, conversation)
+
+        if (
+            "duration" in details
+            and ctx.duration is not None
+            and details["duration"] != ctx.duration
+            and len(ctx.selected_course_options) > 1
+        ):
+            state.pending_action = None
+            state.phase = ConversationPhase.COLLECTING_INFO
+            state.slot_confirmed = False
+            msg = (
+                f"Your selected courses total {ctx.duration} minutes. "
+                "Please change the course selection before choosing a different duration."
+            )
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
 
         changed_existing: set[str] = set()
         for key in ("date", "start_time", "time_preference", "duration", "number_of_people", "phone_number"):
@@ -754,6 +805,9 @@ class ChatEndpoint:
             state.slot_confirmed = False
             state.suggested_slot_times = []
             state.last_tool_result = None
+            if "number_of_people" in changed_existing:
+                ctx.therapist_preference_type = None
+                ctx.therapist_preference_value = None
             if state.phase in {
                 ConversationPhase.SEARCHING_SLOTS, ConversationPhase.COLLECTING_PHONE,
                 ConversationPhase.CONFIRMING_ACTION,
@@ -1011,7 +1065,11 @@ class ChatEndpoint:
         if not result.success:
             return []
         party_size = state.booking_context.number_of_people or 1
-        return [slot for slot in result.data if slot.availableCapacity >= party_size]
+        ctx = state.booking_context
+        return [slot for slot in result.data if slot.availableCapacity >= party_size
+                and (ctx.therapist_preference_type != "specific"
+                     or (slot.availableTherapistIds is not None
+                         and ctx.therapist_preference_value in slot.availableTherapistIds))]
 
     def _nearby_slots(
         self, state: ConversationState, preferred: str, excluded: set[str] | None = None
@@ -1104,6 +1162,11 @@ class ChatEndpoint:
             state.offered_slot_time = None
             state.slot_confirmed = True
             state.suggested_slot_times = []
+            if state.booking_context.number_of_people == 1 and state.booking_context.therapist_preference_type is None:
+                state, ok = self._conversation_manager.transition(state, "select_slot")
+                if not ok:
+                    return IntentResponse(False, state.error_message or "Invalid state", state, conversation)
+                return self._offer_therapist_choice(state, conversation)
             state, ok = self._conversation_manager.transition(state, "confirm_slot")
             if not ok:
                 return IntentResponse(
@@ -1183,6 +1246,85 @@ class ChatEndpoint:
         state.last_tool_result = None
         return await self._run_search_slots(state, conversation, get_metrics())
 
+    def _offer_therapist_choice(self, state: ConversationState, conversation: Conversation) -> IntentResponse:
+        ctx = state.booking_context
+        try:
+            result = SearchAvailableSlotsResponse.model_validate(state.last_tool_result)
+            selected = next(slot for slot in result.data if slot.startTime.strftime("%H:%M") == ctx.start_time)
+            ids = set(selected.availableTherapistIds or [])
+            available = [therapist for therapist in result.therapists or [] if therapist.therapistId in ids]
+        except (ValueError, StopIteration):
+            available = []
+        if not available:
+            # Older slot responses do not carry therapist details. The customer
+            # can still book with the API's supported no-preference option.
+            ctx.therapist_preference_type = "no_preference"
+            state.phase = ConversationPhase.COLLECTING_PHONE
+            if ctx.phone_number:
+                return self._prepare_booking_confirmation(state, conversation)
+            msg = "What phone number should we use for the booking?"
+        else:
+            names = ", ".join(f"{item.name} (id {item.therapistId})" for item in available)
+            genders = ", ".join(sorted({item.gender for item in available}))
+            msg = f"For {ctx.start_time}, would you prefer any therapist, {genders}, or one of: {names}?"
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
+    async def _handle_therapist_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        if state.phase != ConversationPhase.SELECTING_THERAPIST:
+            return None
+        ctx = state.booking_context
+        result = SearchAvailableSlotsResponse.model_validate(state.last_tool_result)
+        slot = next((item for item in result.data if item.startTime.strftime("%H:%M") == ctx.start_time), None)
+        ids = set(slot.availableTherapistIds or []) if slot else set()
+        available = [item for item in result.therapists or [] if item.therapistId in ids]
+        reply = message.casefold().strip()
+        preference_type: str | None = None
+        preference_value: int | str | None = None
+        if reply in {"any", "any therapist", "no preference", "either"}:
+            preference_type = "no_preference"
+        elif reply in {"male", "female", "male therapist", "female therapist"}:
+            selected_gender = "Male" if reply.startswith("male") else "Female"
+            if any(item.gender == selected_gender for item in available):
+                preference_type = "gender"
+                preference_value = selected_gender
+        else:
+            match = re.fullmatch(r"(?:therapist\s*|id\s*)?(\d+)", reply)
+            candidates = [item for item in available if (
+                (match and item.therapistId == int(match.group(1)))
+                or reply == item.name.casefold()
+            )]
+            if len(candidates) == 1:
+                preference_type = "specific"
+                preference_value = candidates[0].therapistId
+        if preference_type is None:
+            msg = "Please choose any therapist, an offered gender, or a listed therapist by name or ID."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        ctx.therapist_preference_type = preference_type
+        ctx.therapist_preference_value = preference_value
+        try:
+            fresh = await self._fetch_available_slots(state)
+        except ChatbotError:
+            msg = "I couldn't check that therapist choice right now. Please try again."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        state.last_tool_result = fresh.model_dump(mode="json")
+        if not fresh.success or ctx.start_time not in {
+            item.startTime.strftime("%H:%M") for item in self._available_slots(state)
+        }:
+            state.phase = ConversationPhase.SEARCHING_SLOTS
+            state.slot_confirmed = False
+            return self._suggest_slot_reply(state, conversation, "That therapist choice is unavailable at the selected time.")
+        state.phase = ConversationPhase.COLLECTING_PHONE
+        if ctx.phone_number:
+            return self._prepare_booking_confirmation(state, conversation)
+        msg = "What phone number should we use for the booking?"
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
     async def _handle_phone_reply(
         self, message: str, state: ConversationState, conversation: Conversation
     ) -> IntentResponse | None:
@@ -1192,7 +1334,7 @@ class ChatEndpoint:
             return None
         phone = re.search(r"(?<!\d)\d{9,11}(?!\d)", message)
         if not phone:
-            msg = "Please provide a 9 to 11 digit phone number for the booking."
+            msg = "Please provide a booking phone number, for example 0901234567."
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
         state.booking_context.phone_number = phone.group(0)
@@ -1229,6 +1371,8 @@ class ChatEndpoint:
                 {'courseId': item['courseId'], 'duration': item['duration'], 'price': item['price']}
                 for item in selections if item.get('price') is not None
             ] or None,
+            therapistPreferenceType=ctx.therapist_preference_type,
+            therapistPreferenceValue=ctx.therapist_preference_value,
         )
         state.pending_action = PendingAction(
             tool_name="createBooking", arguments=request.model_dump(mode="json")
@@ -1240,10 +1384,21 @@ class ChatEndpoint:
             )
         selection_summary = ", ".join(f"{item['courseName']} {item['duration']} min" for item in selections)
         price_summary = sum(item['price'] or 0 for item in selections) * ctx.number_of_people
+        therapist_label = ctx.therapist_preference_value
+        if ctx.therapist_preference_type == "specific":
+            try:
+                slots = SearchAvailableSlotsResponse.model_validate(state.last_tool_result)
+                therapist_label = next(
+                    item.name for item in slots.therapists or []
+                    if item.therapistId == ctx.therapist_preference_value
+                )
+            except (ValueError, StopIteration):
+                pass
         msg = (
             f"Please confirm booking: {selection_summary} at {ctx.shop_name} on {ctx.date} "
             f"at {ctx.start_time} for {ctx.number_of_people} people, {ctx.duration} minutes, "
             + (f"total {price_summary:,} VND, " if all(item.get('price') is not None for item in selections) else "")
+            + (f"therapist {therapist_label}, " if ctx.therapist_preference_type in {'specific', 'gender'} else "")
             + f"phone {ctx.phone_number}. Shall I book it?"
         )
         conversation.add_message("assistant", msg)
@@ -1302,15 +1457,22 @@ class ChatEndpoint:
                 ChatbotErrorCode.THERAPIST_UNAVAILABLE,
                 ChatbotErrorCode.BOOKING_CONFLICT,
             }:
-                fresh = await self._fetch_available_slots(state)
-                state.last_tool_result = fresh.model_dump(mode="json")
                 state.phase = ConversationPhase.SEARCHING_SLOTS
+                state.slot_confirmed = False
+                try:
+                    fresh = await self._fetch_available_slots(state)
+                except ChatbotError:
+                    state.last_tool_result = None
+                    msg = "The booking was not completed, and I couldn't refresh availability. Please ask me to check times again."
+                    conversation.add_message("assistant", msg)
+                    return IntentResponse(False, msg, state, conversation)
+                state.last_tool_result = fresh.model_dump(mode="json")
                 if not fresh.success:
-                    msg = "That slot was taken. I couldn't refresh availability; please try again."
+                    msg = "The booking was not completed. I couldn't refresh availability; please try again."
                     conversation.add_message("assistant", msg)
                     return IntentResponse(False, msg, state, conversation)
                 return self._suggest_slot_reply(
-                    state, conversation, "That slot was taken before booking completed."
+                    state, conversation, "The selected slot could not be booked."
                 )
             if error.code in {
                 ChatbotErrorCode.GATEWAY_TIMEOUT,
@@ -1325,7 +1487,16 @@ class ChatEndpoint:
                 )
                 conversation.add_message("assistant", msg)
                 return IntentResponse(False, msg, state, conversation)
-            raise
+            state.pending_action = None
+            state.slot_confirmed = False
+            if error.code == ChatbotErrorCode.VALIDATION_ERROR and "phone" in error.message.casefold():
+                state.phase = ConversationPhase.COLLECTING_PHONE
+                state.booking_context.phone_number = None
+            else:
+                state.phase = ConversationPhase.COLLECTING_INFO
+            msg = f"The booking was not created. Flask rejected the request: {error.message} Please correct the details before confirming again."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
         except Exception:
             self._logger.exception("Booking result could not be verified")
             state.pending_action = None
@@ -1336,9 +1507,14 @@ class ChatEndpoint:
             )
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
-        if not booking.get("success") or not booking.get("bookingCode"):
-            state.phase = ConversationPhase.COLLECTING_PHONE
-            msg = "The booking was not completed. Please check your phone number and try again."
+        if not booking.get("success"):
+            state.phase = ConversationPhase.COLLECTING_INFO
+            msg = "The booking was not completed. Please review the details before trying again."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        if not booking.get("bookingCode") or (booking.get("status") and booking["status"] != "Booked"):
+            state.phase = ConversationPhase.BOOKING_UNCERTAIN
+            msg = "I couldn't verify the booking result. Please check your booking by phone before trying again."
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
         state, ok = self._conversation_manager.transition(state, "booking_created")
@@ -1349,7 +1525,14 @@ class ChatEndpoint:
         state.offered_slot_time = None
         state.suggested_slot_times = []
         state.booking_context.booking_code = booking["bookingCode"]
-        msg = f"Your booking is confirmed. Booking code: {booking['bookingCode']}."
+        assignments = booking.get("therapistAssignments") or []
+        names = [item.get("therapistName") for item in assignments if item.get("therapistName")]
+        if not names and booking.get("therapistName"):
+            names = [booking["therapistName"]]
+        assigned = f" Assigned therapist{'s' if len(names) > 1 else ''}: {', '.join(names)}." if names else ""
+        booking_id = f" Booking ID: {booking['bookingId']}." if booking.get("bookingId") else ""
+        status_text = f" Status: {booking['status']}." if booking.get("status") else ""
+        msg = f"Flask confirmed your booking. Code: {booking['bookingCode']}.{status_text}{booking_id}{assigned}"
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation)
 
@@ -1779,7 +1962,9 @@ class ChatEndpoint:
             date=date.fromisoformat(booking_date),
             duration=ctx.duration,
             numberOfPeople=ctx.number_of_people,
-            courseIds=str(ctx.course_id),
+            courseIds=",".join(str(item["courseId"]) for item in ctx.selected_course_options) if ctx.selected_course_options else str(ctx.course_id),
+            gender=ctx.therapist_preference_value if ctx.therapist_preference_type == "gender" else None,
+            showTherapists=ctx.number_of_people == 1,
         )
         tool = self._tool_registry.get("searchAvailableSlots")
         result = await tool.execute(request)
@@ -1816,6 +2001,103 @@ class ChatEndpoint:
             msg = "This phone number is eligible to book."
         else:
             msg = "Sorry, this phone number is not eligible to book."
+        conversation.add_message("assistant", msg)
+        return IntentResponse(True, msg, state, conversation)
+
+    async def _start_booking_management(
+        self, intent: IntentType, message: str, state: ConversationState,
+        conversation: Conversation, metrics: Any,
+    ) -> IntentResponse:
+        state.pending_action = None
+        state.lookup_code = None
+        state.management_action = "cancel" if intent == IntentType.CANCEL_BOOKING else "modify"
+        state.management_booking_id = None
+        state.management_booking_code = None
+        state.phase = ConversationPhase.LOOKING_UP_BOOKING
+        return await self._run_lookup_booking(message, state, conversation, metrics)
+
+    async def _handle_management_reply(
+        self, message: str, state: ConversationState, conversation: Conversation,
+    ) -> IntentResponse | None:
+        if not state.management_action:
+            return None
+        if state.pending_action and state.pending_action.tool_name in {"modifyBooking", "cancelBooking"}:
+            if message.casefold().strip() in {"no", "n", "cancel"}:
+                state.pending_action = None
+                state.management_action = None
+                state.phase = ConversationPhase.LOOKING_UP_BOOKING
+                msg = "No booking change was submitted."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(True, msg, state, conversation)
+            if not _is_affirmative_reply(message):
+                msg = "Please confirm or decline this booking change."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            assert self._tool_registry is not None
+            orchestrator = self._tool_orchestrator or ToolOrchestrator(self._tool_registry)
+            action = state.management_action
+            try:
+                result = await orchestrator.execute_pending_action(state)
+            except ChatbotError as error:
+                state.management_action = None
+                state.phase = ConversationPhase.LOOKING_UP_BOOKING
+                if error.code in {ChatbotErrorCode.UNAUTHORIZED, ChatbotErrorCode.FORBIDDEN}:
+                    state.lookup_access_token = None
+                msg = f"The booking was not {('cancelled' if action == 'cancel' else 'updated')}: {error.message}"
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            except Exception:
+                state.management_action = None
+                state.phase = ConversationPhase.LOOKING_UP_BOOKING
+                msg = "I couldn't verify the booking change. Please check its status before trying again."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            state.management_action = None
+            if not result.get("success") or not result.get("bookingId"):
+                state.phase = ConversationPhase.LOOKING_UP_BOOKING
+                msg = "I couldn't verify the booking change. Please check its status before trying again."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            state.phase = ConversationPhase.ACTION_COMPLETE
+            status = result.get("status")
+            status_text = f" Status: {status}." if status else ""
+            msg = f"Flask confirmed booking {result['bookingId']} was {('cancelled' if action == 'cancel' else 'updated')}.{status_text}"
+            conversation.add_message("assistant", msg)
+            return IntentResponse(True, msg, state, conversation)
+
+        if state.management_booking_id is None:
+            code_match = re.search(r"BK\d{12}", message.upper())
+            if code_match and state.lookup_access_token and state.lookup_phone:
+                state.lookup_code = code_match.group(0)
+                return await self._run_lookup_booking(message, state, conversation, get_metrics())
+            return None
+
+        if state.management_action != "modify":
+            return None
+        changes = extract_booking_details(message)
+        patch: dict[str, Any] = {}
+        if "date" in changes:
+            patch["bookingDate"] = changes["date"]
+        if "start_time" in changes:
+            patch["startTime"] = changes["start_time"]
+        if not patch:
+            msg = (
+                "Tell me the new date or exact start time. For course, duration, "
+                "or therapist changes, use the verified booking edit form."
+            )
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+        request = ModifyBookingRequest(
+            bookingId=state.management_booking_id,
+            accessToken=state.lookup_access_token,
+            **patch,
+        )
+        state.pending_action = PendingAction(
+            tool_name="modifyBooking", arguments=request.model_dump(mode="json")
+        )
+        state.phase = ConversationPhase.CONFIRMING_ACTION
+        description = ", ".join(f"{key} {value}" for key, value in patch.items())
+        msg = f"Please confirm changing booking {state.management_booking_code} to {description}. Shall I submit this change?"
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation)
 
@@ -1898,8 +2180,49 @@ class ChatEndpoint:
                 conversation.add_message("assistant", msg)
                 return IntentResponse(False, msg, state, conversation)
             bookings = matches
-            ctx.booking_code = bookings[0].bookingCode
-            state.phase = ConversationPhase.BOOKING_COMPLETE
+            if len(matches) == 1:
+                ctx.booking_code = matches[0].bookingCode
+            # A matching older booking does not prove the uncertain POST succeeded.
+            msg = (
+                "I found a booking matching those details, but I can't tell whether "
+                "the timed-out request created it. Please use the booking code below "
+                "or contact the shop before trying to book again."
+            )
+            if matches:
+                msg += f" Matching code: {matches[0].bookingCode}."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(True, msg, state, conversation)
+        if state.management_action:
+            if not bookings:
+                msg = "I couldn't find a matching booking for this verified phone. Check the booking code."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            total = (result.pagination or {}).get("total", len(bookings))
+            if not booking_code and (len(bookings) != 1 or total != 1):
+                codes = ", ".join(item.bookingCode for item in bookings)
+                msg = f"Please choose the booking code to {state.management_action}: {codes}."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(True, msg, state, conversation)
+            booking = bookings[0]
+            if booking.status != "Booked":
+                msg = f"Booking {booking.bookingCode} is {booking.status}; only bookings with Booked status can be changed or cancelled."
+                conversation.add_message("assistant", msg)
+                return IntentResponse(False, msg, state, conversation)
+            state.management_booking_id = booking.bookingId
+            state.management_booking_code = booking.bookingCode
+            if state.management_action == "cancel":
+                pending = CancelBookingRequest(
+                    bookingId=booking.bookingId, accessToken=state.lookup_access_token,
+                )
+                state.pending_action = PendingAction(
+                    tool_name="cancelBooking", arguments=pending.model_dump(mode="json")
+                )
+                state.phase = ConversationPhase.CONFIRMING_ACTION
+                msg = f"Please confirm cancellation of booking {booking.bookingCode} at {booking.shopName} on {booking.bookingDate} at {booking.startTime}."
+            else:
+                msg = f"Booking {booking.bookingCode} is verified. What new date or exact start time would you like?"
+            conversation.add_message("assistant", msg)
+            return IntentResponse(True, msg, state, conversation)
         if not bookings:
             msg = "I couldn't find a matching booking for that phone number."
             conversation.add_message("assistant", msg)

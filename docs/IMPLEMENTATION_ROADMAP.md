@@ -118,7 +118,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** The verified customer list links directly to an edit form on booking detail. The form starts from saved booking data, submits only supported PATCH fields, and uses the customer token even when a staff token exists in the browser. It can change date/time, valid course options and resulting duration, or a one-guest therapist preference. Cancellation is available from list and detail. Both actions refresh status and explain expired access, stale status, and availability rejection. See [Task 9 record](progress/task-09.md). The existing PATCH/cancel endpoints and backend transaction rules remain authoritative.
 
-### 10. Align the chatbot booking contract — planned
+### 10. Align the chatbot booking contract — completed
 
 **Depends on:** Tasks 1, 3, 4, and 8; chatbot writes must use the same validated contract and access rules as the web flow.
 
@@ -127,6 +127,8 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** Existing chatbot tests and schemas encode the older request model. Course duration options and guest count must survive confirmation without silently dropping the user's choices.
 
 **Verify:** A confirmed chat booking sends intended service selection, therapist preference, duration, and guest count; cancellation or rejection before confirmation never writes; a lost slot offers recovery.
+
+**Implementation:** The chat flow now resolves one-guest therapist choices from Flask slot data, filters availability for the selected preference, retains catalog-backed course options through confirmation, and sends Flask's preference fields. Known booking rejections keep the draft and do not claim success; busy and lost slots refresh availability, while an uncertain write requires verification before retry. The create tool preserves Flask's returned status and assignments. Chat modification of date or exact start time and cancellation now use Task 4 phone verification, booking lookup, a pending-action confirmation, and protected Flask routes. See [Task 10 record](progress/task-10.md). No Flask endpoint or database change was needed.
 
 ### 11. Verify RAG configuration and customer advice — planned verification
 

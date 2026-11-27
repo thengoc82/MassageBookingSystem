@@ -2,7 +2,8 @@
   "type": "object",
   "properties": {
     "success": { "type": "boolean" },
-    "bookingId": { "type": "string" },
+    "bookingId": { "type": "integer" },
+    "status": { "type": "string" },
     "message": { "type": "string" }
   },
   "required": ["success"]

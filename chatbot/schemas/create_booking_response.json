@@ -2,8 +2,12 @@
   "type": "object",
   "properties": {
     "success": { "type": "boolean" },
-    "bookingId": { "type": "string" },
+    "bookingId": { "type": "integer" },
     "bookingCode": { "type": "string" },
+    "status": { "type": "string" },
+    "therapistId": { "type": ["integer", "null"] },
+    "therapistName": { "type": ["string", "null"] },
+    "therapistAssignments": { "type": "array", "items": { "type": "object" } },
     "message": { "type": "string" }
   },
   "required": ["success"]

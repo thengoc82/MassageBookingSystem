@@ -115,6 +115,12 @@ def test_map_pos_slot_conflicts_to_availability_error():
         assert isinstance(err, TimeSlotUnavailableError)
 
 
+def test_flask_booking_conflict_keeps_recovery_code():
+    err = map_flask_error(409, "BOOKING_CONFLICT", "Booking capacity is busy")
+    assert err.code == ChatbotErrorCode.BOOKING_CONFLICT
+    assert err.retryable is True
+
+
 def test_map_flask_error_invalid_booking_date():
     err = map_flask_error(422, "INVALID_BOOKING_DATE", "Invalid date")
     assert isinstance(err, InvalidBookingDateError)

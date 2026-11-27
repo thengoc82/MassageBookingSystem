@@ -30,6 +30,10 @@ class CreateBookingTool(BaseTool[CreateBookingRequest, CreateBookingResponse]):
             success=response["success"],
             bookingId=data.get("bookingId"),
             bookingCode=data.get("bookingCode"),
+            status=data.get("status"),
+            therapistId=data.get("therapistId"),
+            therapistName=data.get("therapistName"),
+            therapistAssignments=data.get("therapistAssignments") or [],
             message=response.get("message"),
         )
 
@@ -48,7 +52,7 @@ class ModifyBookingTool(BaseTool[ModifyBookingRequest, ModifyBookingResponse]):
             raise ChatbotError(ChatbotErrorCode.VALIDATION_ERROR, "Phone verification is required")
         booking_id = request.bookingId
         payload = request.model_dump(mode="json", exclude={"bookingId", "accessToken"}, exclude_none=True)
-        unsupported = set(payload) - {"startTime", "therapistId"}
+        unsupported = set(payload) - {"bookingDate", "startTime"}
         if unsupported or not payload:
             raise ChatbotError(
                 ChatbotErrorCode.VALIDATION_ERROR,
@@ -60,6 +64,7 @@ class ModifyBookingTool(BaseTool[ModifyBookingRequest, ModifyBookingResponse]):
         data = response.get("data") or response
         return ModifyBookingResponse(
             success=response["success"], bookingId=data.get("bookingId"),
+            status=data.get("status"),
             message=response.get("message"),
         )
 
@@ -81,5 +86,6 @@ class CancelBookingTool(BaseTool[CancelBookingRequest, CancelBookingResponse]):
         data = response.get("data") or response
         return CancelBookingResponse(
             success=response["success"], bookingId=data.get("bookingId"),
+            status=data.get("status"),
             message=response.get("message"),
         )

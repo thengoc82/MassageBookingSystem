@@ -25,6 +25,8 @@ class ChatbotErrorCode(str):
     TOOL_ERROR = "TOOL_ERROR"
     UNAUTHORIZED = "UNAUTHORIZED"
     FORBIDDEN = "FORBIDDEN"
+    INVALID_MODIFY_STATUS = "INVALID_MODIFY_STATUS"
+    INVALID_CANCEL_STATUS = "INVALID_CANCEL_STATUS"
 
 
 class ChatbotError(Exception):
@@ -77,6 +79,12 @@ class BookingNotFoundError(NotFoundError):
 class ConflictError(ChatbotError):
     def __init__(self, message: str) -> None:
         super().__init__(ChatbotErrorCode.CONFLICT, message, retryable=True)
+
+
+class BookingConflictError(ConflictError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.code = ChatbotErrorCode.BOOKING_CONFLICT
 
 
 class TimeSlotUnavailableError(ConflictError):
@@ -166,7 +174,7 @@ def map_flask_error(status_code: int, error_code: str, message: str) -> ChatbotE
         "CUSTOMER_NOT_FOUND": NotFoundError,
         "RESOURCE_NOT_FOUND": NotFoundError,
         "DUPLICATE_RESOURCE": ConflictError,
-        "BOOKING_CONFLICT": ConflictError,
+        "BOOKING_CONFLICT": BookingConflictError,
         "TIME_SLOT_UNAVAILABLE": TimeSlotUnavailableError,
         "SLOT_UNAVAILABLE": TimeSlotUnavailableError,
         "INSUFFICIENT_THERAPISTS": TimeSlotUnavailableError,
@@ -178,6 +186,7 @@ def map_flask_error(status_code: int, error_code: str, message: str) -> ChatbotE
         "THERAPIST_NOT_ALLOWED_GROUP": TherapistNotAllowedGroupError,
         "INVALID_COURSE_TYPE": BusinessRuleError,
         "INVALID_MODIFY_STATUS": BusinessRuleError,
+        "INVALID_CANCEL_STATUS": BusinessRuleError,
         "UNAUTHORIZED": UnauthorizedError,
         "FORBIDDEN": ForbiddenError,
     }

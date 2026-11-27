@@ -31,7 +31,7 @@ export default function ConfirmationButtons({
         className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-celadon px-4 text-sm font-semibold text-white transition-colors hover:bg-celadon-deep disabled:cursor-not-allowed disabled:bg-[#B8C4C0]"
       >
         <Check size={16} aria-hidden="true" />
-        Confirm booking
+        Confirm
       </button>
       <button
         type="button"

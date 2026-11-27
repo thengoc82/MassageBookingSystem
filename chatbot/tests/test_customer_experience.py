@@ -293,8 +293,9 @@ async def test_uncertain_backend_write_requires_lookup_before_retry() -> None:
     assert "verification code" in challenge.message
     assert "Flask API terminal" in challenge.message
     verified = await send(endpoint, "123456")
-    assert verified.phase == ConversationPhase.BOOKING_COMPLETE
+    assert verified.phase == ConversationPhase.BOOKING_UNCERTAIN
     assert "BK202611230001" in verified.message
+    assert "can't tell" in verified.message
     assert lookup.execute.await_args.args[0].accessToken == 'verified-token'
     assert ['user', '[verification code]'] in sessions['s1'].conversation_history
     assert ['user', '123456'] not in sessions['s1'].conversation_history

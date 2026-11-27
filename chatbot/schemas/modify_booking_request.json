@@ -3,20 +3,10 @@
   "properties": {
     "bookingId": { "type": "integer" },
     "accessToken": { "type": "string" },
-    "shopId": { "type": "string" },
-    "bookingDate": { "type": "string" },
-    "startTime": { "type": "string" },
-    "numberOfPeople": { "type": "integer" },
-    "services": { 
-      "type": "array", 
-      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "string" } } } 
-    },
-    "addOns": { 
-      "type": "array", 
-      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "string" } } } 
-    },
-    "therapistId": { "type": "string" },
-    "therapistGender": { "type": "string" }
+    "bookingDate": { "type": "string", "format": "date" },
+    "startTime": { "type": "string", "format": "time" }
   },
-  "required": ["bookingId", "accessToken"]
+  "required": ["bookingId", "accessToken"],
+  "anyOf": [{ "required": ["bookingDate"] }, { "required": ["startTime"] }],
+  "additionalProperties": false
 }

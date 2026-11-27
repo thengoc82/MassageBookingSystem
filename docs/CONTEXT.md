@@ -168,6 +168,8 @@ Booking access code verification issues a short-lived token scoped to the normal
    - Customer chooses again on the booking form without losing courses, contact details, or notes
    - The new choice is checked again on submission; a second loss follows the same recovery path
 
+In chat, a one-guest customer can choose no therapist preference, an available gender, or a named therapist offered by Flask for the selected slot. The chatbot shows the complete draft and requires a final confirmation before calling Flask. Group bookings have no therapist preference. Chat lookup, modification, and cancellation use the same phone-scoped verification as the web flow; public creation does not require that token. A chatbot timeout after a write leaves the outcome uncertain until a verified lookup or staff assistance, and a similar older booking does not establish which request created it.
+
 Availability is **optimistic** — shown as it was at query time. Creation rechecks therapist availability inside a database transaction. SQLite creation acquires a write transaction before reading availability; see [ADR 0003](adr/0003-atomic-therapist-assignment.md).
 
 ---
