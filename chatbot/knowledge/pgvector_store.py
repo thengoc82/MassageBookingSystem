@@ -29,6 +29,7 @@ class PgVectorStore(VectorStore):
         embedding_service: EmbeddingService,
         *,
         table_name: str = "knowledge_chunks",
+        ensure_schema: bool = True,
     ) -> None:
         self._dsn = dsn
         self._embedding_dim = embedding_dim
@@ -36,6 +37,7 @@ class PgVectorStore(VectorStore):
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
             raise ValueError("Invalid knowledge table name")
         self._table_name = table_name
+        self._ensure_schema_on_connect = ensure_schema
         # Lazy: don't connect at startup. App can boot without PostgreSQL;
         # DB-backed methods (search, add, clear) will fail loudly if called
         # and the DB is unreachable, with the underlying psycopg2 error.
@@ -46,15 +48,44 @@ class PgVectorStore(VectorStore):
         if self._conn is not None and not self._conn.closed:
             return self._conn
         self._conn = psycopg2.connect(self._dsn)
-        self._conn.autocommit = False
+        self._conn.autocommit = not self._ensure_schema_on_connect
         try:
-            self._ensure_schema()
+            if self._ensure_schema_on_connect:
+                self._ensure_schema()
+            else:
+                self._verify_schema()
             register_vector(self._conn)
+            if not self._conn.autocommit:
+                self._conn.commit()
         except Exception:
             self._conn.close()
             self._conn = None
             raise
         return self._conn
+
+    def _verify_schema(self) -> None:
+        """Check an existing index without taking DDL locks in chatbot runtime."""
+        assert self._conn is not None, "connect before _verify_schema"
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT attname, format_type(atttypid, atttypmod) "
+                "FROM pg_attribute WHERE attrelid = to_regclass(%s) "
+                "AND attnum > 0 AND NOT attisdropped",
+                (self._table_name,),
+            )
+            columns = dict(cur.fetchall())
+        required = {
+            "chunk_id", "source_file", "title", "heading", "content",
+            "last_updated", "embedding", "document_id", "category",
+            "shop_id", "language", "source", "active", "content_hash",
+        }
+        if not required.issubset(columns):
+            raise ValueError("Knowledge index schema is missing; run the indexing command")
+        expected = f"vector({self._embedding_dim})"
+        if columns["embedding"] != expected:
+            raise ValueError(
+                f"Knowledge index uses {columns['embedding']}; configured embedding size requires {expected}"
+            )
 
     def _ensure_schema(self) -> None:
         """Create the pgvector extension and the table if they don't exist."""
@@ -75,6 +106,12 @@ class PgVectorStore(VectorStore):
                 )
                 """).format(table, sql.Literal(self._embedding_dim))
             )
+            cur.execute(
+                "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(%s) "
+                "AND attnum > 0 AND NOT attisdropped",
+                (self._table_name,),
+            )
+            existing_columns = {row[0] for row in cur.fetchall()}
             for column, definition in (
                 ("document_id", "TEXT"), ("category", "TEXT"),
                 ("shop_id", "INTEGER"), ("language", "TEXT NOT NULL DEFAULT 'en'"),
@@ -82,17 +119,22 @@ class PgVectorStore(VectorStore):
                 ("active", "BOOLEAN NOT NULL DEFAULT TRUE"),
                 ("content_hash", "TEXT NOT NULL DEFAULT ''"),
             ):
+                if column in existing_columns:
+                    continue
                 cur.execute(
                     sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}").format(
                         table, sql.Identifier(column), sql.SQL(definition)
                     )
                 )
             cur.execute(sql.SQL("UPDATE {} SET document_id = source_file WHERE document_id IS NULL").format(table))
-            cur.execute(
-                sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} USING ivfflat (embedding vector_cosine_ops)").format(
-                    sql.Identifier(self._table_name + "_embedding_idx"), table
+            index_name = self._table_name + "_embedding_idx"
+            cur.execute("SELECT to_regclass(%s)", (index_name,))
+            if cur.fetchone()[0] is None:
+                cur.execute(
+                    sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} USING ivfflat (embedding vector_cosine_ops)").format(
+                        sql.Identifier(index_name), table
+                    )
                 )
-            )
         self._conn.commit()
 
     def add_chunk(self, chunk: TextChunk, embedding: list[float]) -> None:
@@ -144,6 +186,8 @@ class PgVectorStore(VectorStore):
             cur.execute(sql.SQL("SELECT content_hash FROM {} WHERE document_id = %s LIMIT 1").format(
                 sql.Identifier(self._table_name)), (document_id,))
             row = cur.fetchone()
+        if not conn.autocommit:
+            conn.rollback()
         return row[0] if row else None
 
     def replace_document(self, document_id: str, items: list[tuple[TextChunk, list[float]]]) -> None:
@@ -223,6 +267,8 @@ class PgVectorStore(VectorStore):
         with conn.cursor() as cur:
             cur.execute(statement, params)
             rows = cur.fetchall()
+        if not conn.autocommit:
+            conn.rollback()
 
         results: list[tuple[TextChunk, float]] = []
         for row in rows:

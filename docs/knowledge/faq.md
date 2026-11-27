@@ -5,36 +5,34 @@ category: faq
 language: en
 ---
 
-# General Questions
-
-## What are your opening hours?
-
-Our shops are generally open from 10:00 AM to 10:00 PM every day. Please check the specific shop's page for any variations in hours.
+# Booking questions
 
 ## How can I book a massage?
 
-You can book through our website, mobile app, or by calling the shop directly. We recommend booking in advance to secure your preferred time and therapist.
+You can make a booking through this website or chatbot. Choose a shop, date, time, and bookable main course; add-ons are optional. A booking is confirmed only after the booking API accepts it and returns a booking code. Available times can change before confirmation.
 
-# Booking
+## Can I choose a therapist?
 
-## Can I choose a specific therapist?
+For one guest, you can choose no preference, an available therapist gender, or a specific therapist offered for the selected time. For a group, the booking system assigns a different available therapist to each guest.
 
-Yes, for single-person bookings, you can request a specific therapist by name. For group bookings, therapists are assigned automatically based on availability.
+## Can I book for a group or couple?
 
-## What if I need to cancel my booking?
+Yes. Select two or more guests and a time with enough available therapists. Each guest receives the same selected main courses and add-ons.
 
-You can cancel your booking up to 2 hours before your scheduled time without any charge. Cancellations made within 2 hours of the appointment may be subject to a fee. Please refer to our cancellation policy for full details.
+## Do you have private couples rooms?
 
-## Can I book for a group?
+Room type and couples facilities are not documented. A booking for two guests does not establish that a private room is available. Ask the shop directly about its facilities.
 
-Absolutely. Our system supports group bookings. Simply select the number of people when you start the booking process. The system will then find a time slot that can accommodate your entire group.
+## How can I cancel or change my booking?
 
-# Services
+A customer can access their own booking after phone-code verification. A booking can be changed or cancelled only while its status is Booked. The booking API makes the final decision when you submit a change or cancellation. A cancellation fee or notice-period policy is not documented; ask the shop for that policy.
 
-## What is the difference between a main course and an addon?
+# Service questions
 
-A main course is a primary massage service, like a 60-minute Thai massage. An addon is a shorter, supplementary service you can add to your main course, such as a 15-minute foot scrub or a hot stone treatment.
+## What are main courses and add-ons?
 
-## Do you offer services for couples?
+A main course is a primary service. An add-on is an optional supplementary service. Each guest selects one or more bookable main courses and may select add-ons. The selected course durations must add up to the booking duration. The current service names, duration options, and prices come from the shop's live catalog.
 
-Yes, we have private rooms designed for couples. You can book a couples massage by selecting two people during the booking process and choosing your desired services.
+## What massage advice or treatment details can you provide?
+
+The current catalog does not contain service descriptions or medical guidance. I cannot verify treatment effects, suitability for a health condition, or contraindications from this knowledge base. Ask the shop about its services; for personal medical advice, consult a qualified clinician.

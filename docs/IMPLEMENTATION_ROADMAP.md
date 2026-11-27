@@ -130,7 +130,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** The chat flow now resolves one-guest therapist choices from Flask slot data, filters availability for the selected preference, retains catalog-backed course options through confirmation, and sends Flask's preference fields. Known booking rejections keep the draft and do not claim success; busy and lost slots refresh availability, while an uncertain write requires verification before retry. The create tool preserves Flask's returned status and assignments. Chat modification of date or exact start time and cancellation now use Task 4 phone verification, booking lookup, a pending-action confirmation, and protected Flask routes. See [Task 10 record](progress/task-10.md). No Flask endpoint or database change was needed.
 
-### 11. Verify RAG configuration and customer advice — planned verification
+### 11. Verify RAG configuration and customer advice — implemented and verified locally
 
 **Depends on:** Task 10 for a complete customer chat flow; retrieval code and indexing can be checked independently.
 
@@ -139,6 +139,10 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** Without `CHATBOT_PG_DSN`, FAQ retrieval is disabled. Redis is required for normal session handling. The knowledge docs say `CHATBOT_OPENAI_API_KEY` is optional for concise grounded answers: without it, a matching excerpt and source can still be returned. Natural-language behavior may additionally depend on the configured LLM path.
 
 **Verify:** Index a known FAQ, ask a question absent from the conversation, and confirm the answer matches and cites the indexed source. Record the actual service configuration and result.
+
+**Implementation:** The existing `all-MiniLM-L6-v2` model, 384-dimensional pgvector table, and incremental Markdown indexer remain in use. The FAQ now contains only documented booking guidance and explicit limits on undocumented room, policy, and medical claims. FAQ retrieval checks whether candidate chunks address the question before returning an excerpt or passing evidence to the LLM. Price, shop hours, and catalog questions use Flask tools; booking status still requires verified lookup. Runtime vector connections check the existing schema without DDL or idle read transactions. The FAQ was re-indexed. See [Task 11 record](progress/task-11.md).
+
+**Verification:** The chatbot suite passed 300 tests. Local Redis and chatbot health checks passed; the updated code was exercised against Redis and pgvector, and live shop hours and prices matched the running Flask API. The local port 8001 process was restarted, and `/chat` returned a single relevant cancellation citation, an explicit medical uncertainty answer, and the corrected private-room answer. No `CHATBOT_OPENAI_API_KEY` is configured locally, so live LLM generation was tested with a mock rather than an external call.
 
 ### 12. Run the complete scenario suite and reconcile documentation — planned
 

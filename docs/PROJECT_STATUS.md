@@ -16,6 +16,7 @@ This file tracks the implementation checklist for the AI massage booking specifi
 | 08 — Slot choices and recovery | **Completed** | [Task 08 record](progress/task-08.md); Flask API suite: 83 passed; frontend Jest suite: 44 passed; TypeScript check and two Chromium booking-flow tests passed. |
 | 09 — Customer booking edits | **Completed** | [Task 09 record](progress/task-09.md); Flask API suite: 84 passed; frontend Jest suite: 53 passed; TypeScript check passed. |
 | 10 — Chatbot booking contract | **Completed** | [Task 10 record](progress/task-10.md); chatbot suite: 286 passed; Flask suite: 90 passed, including six cross-service tests; frontend Jest: 53 passed; TypeScript check passed. |
+| 11 — RAG configuration and advice | **Completed locally** | [Task 11 record](progress/task-11.md); chatbot suite: 300 passed; updated FAQ indexed and verified against local pgvector, Redis, Flask catalog, and restarted chatbot HTTP endpoint. |
 
 ## Task 2 implementation and scope
 

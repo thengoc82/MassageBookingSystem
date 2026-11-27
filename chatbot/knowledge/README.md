@@ -6,7 +6,11 @@ The chatbot uses Markdown files under `docs/knowledge` for informational answers
 
 Provide PostgreSQL with the `vector` extension available, then set `CHATBOT_PG_DSN` for both the indexing command and chatbot. The database user needs permission to create the extension and table on first use, or an administrator can create the extension ahead of time. The default embedding model is `all-MiniLM-L6-v2` (384 dimensions); use the same `CHATBOT_EMBEDDING_MODEL` and `CHATBOT_EMBEDDING_DIM` for indexing and chat.
 
+The offline indexer creates or updates the schema. Chatbot runtime checks that the existing table has the configured vector dimension and searches it without running DDL. Run the indexer before serving FAQ requests.
+
 Optional settings: `CHATBOT_KNOWLEDGE_ROOT` (default `docs/knowledge`), `CHATBOT_CHUNK_SIZE` (500), `CHATBOT_CHUNK_OVERLAP` (50), `CHATBOT_VECTOR_STORE_TOP_K` (5), and `CHATBOT_VECTOR_STORE_MIN_SCORE` (0.35). `CHATBOT_OPENAI_API_KEY` enables concise grounded answers; without it, the chatbot returns a matching excerpt and source.
+
+Only add verified informational content to `docs/knowledge`. Current shop hours, service options and prices, availability, and booking outcomes must come from the Flask API. If no excerpt supports a question, the chatbot says it cannot verify the answer. The local `OPENAI_API_KEY` variable does not configure the chatbot; use the `CHATBOT_` prefix if an LLM-backed FAQ response is desired.
 
 Install `chatbot/requirements.txt`, then run from the repository root:
 

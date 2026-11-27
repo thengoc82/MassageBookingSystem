@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 from chatbot.knowledge.chunking import TextChunk
@@ -34,6 +35,47 @@ def test_pgvector_store_init() -> None:
     # We can't easily test the constructor without a real DB, but we can test
     # that PgVectorStore is indeed a VectorStore subclass.
     assert issubclass(PgVectorStore, VectorStore)
+
+
+def test_runtime_checks_existing_schema_without_ddl() -> None:
+    columns = [
+        (name, "vector(384)" if name == "embedding" else "text")
+        for name in (
+            "chunk_id", "source_file", "title", "heading", "content",
+            "last_updated", "embedding", "document_id", "category",
+            "shop_id", "language", "source", "active", "content_hash",
+        )
+    ]
+    with patch("chatbot.knowledge.pgvector_store.psycopg2.connect") as connect, \
+         patch("chatbot.knowledge.pgvector_store.register_vector"):
+        connection = connect.return_value
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = columns
+        store = PgVectorStore("postgresql://unused", 384, MagicMock(), ensure_schema=False)
+        assert store._connect() is connection
+    statement = cursor.execute.call_args.args[0]
+    assert statement.startswith("SELECT attname")
+    assert connection.autocommit is True
+
+
+def test_runtime_rejects_wrong_vector_dimension() -> None:
+    with patch("chatbot.knowledge.pgvector_store.psycopg2.connect") as connect, \
+         patch("chatbot.knowledge.pgvector_store.register_vector"):
+        connection = connect.return_value
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            (name, "vector(768)" if name == "embedding" else "text")
+            for name in (
+                "chunk_id", "source_file", "title", "heading", "content",
+                "last_updated", "embedding", "document_id", "category",
+                "shop_id", "language", "source", "active", "content_hash",
+            )
+        ]
+        store = PgVectorStore("postgresql://unused", 384, MagicMock(), ensure_schema=False)
+        import pytest
+        with pytest.raises(ValueError, match="vector\\(384\\)"):
+            store._connect()
+        connection.close.assert_called_once()
 
 
 def test_pgvector_store_interface() -> None:

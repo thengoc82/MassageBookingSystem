@@ -12,6 +12,11 @@ class LLMService(Protocol):
     async def generate_response(self, prompt: str, context: dict[str, Any]) -> str:
         ...
 
+    async def generate_grounded_answer(
+        self, question: str, excerpts: list[dict[str, str]]
+    ) -> str:
+        ...
+
     async def extract_intent(self, text: str, context: dict[str, Any]) -> dict[str, Any]:
         ...
 
