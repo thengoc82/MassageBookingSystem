@@ -143,6 +143,8 @@ Only `Booked` status allows modification.
 
 **Admin**
 System operator who manages Shops, Courses, Therapists, Shifts, and Bookings. Can check customers in/out. Can manage the NG List.
+Admin accounts for local development are created by the command-line seed script
+on an empty development database. There is no public demo-setup endpoint.
 
 **Customer** (public role)
 Person using the booking system. Booking creation requires no account. Viewing, editing, or cancelling existing bookings requires a short-lived access code for the booking phone; see [ADR 0004](adr/0004-phone-verified-booking-access.md). The development terminal provider supports local testing only and does not prove control of the phone.

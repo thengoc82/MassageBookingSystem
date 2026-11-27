@@ -63,6 +63,14 @@ class FakeRedis:
         return 0
 
 
+def test_anonymous_demo_setup_cannot_create_known_admin_credentials(client):
+    response = client.post('/api/setup-demo-data')
+    assert response.status_code == 404
+    assert client.post('/api/auth/login', json={
+        'username': 'admin', 'password': 'admin123'
+    }).status_code == 401
+
+
 def test_phone_verification_is_one_time_and_rate_limited(client, monkeypatch):
     redis = FakeRedis()
     sent = []

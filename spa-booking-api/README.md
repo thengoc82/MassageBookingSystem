@@ -27,9 +27,10 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-4. Initialize database (creates SQLite file automatically):
+4. Apply database migrations, then optionally seed an empty development database:
 ```bash
-python3 -c "from app import create_app; from app.extensions import db; app = create_app(); app.app_context().push(); db.create_all(); print('Database created')"
+flask --app run:app db upgrade
+python seed_dev.py
 ```
 
 5. Run server:
@@ -41,7 +42,7 @@ API available at http://localhost:5000
 
 Customer booking lookup, detail, modification, and cancellation require a six-digit access code. In Flask development mode, the code is printed with the phone number in the API terminal. Redis stores only a keyed hash, expires the code after five minutes, and enforces attempt and request limits. No Twilio account or paid service is needed for local testing.
 
-For local testing, run `redis-cli ping` and expect `PONG`, then start the Flask API with `python run.py`. Enter a phone number on **My Bookings**, click **Get code**, and read the code in the Flask terminal. The code is not in the API response. The terminal provider is available only in Flask development mode. Docker Compose runs the API in production mode, where terminal delivery is blocked and customer access returns 503 until a real delivery provider is added. Production startup requires strong `SECRET_KEY` and `JWT_SECRET_KEY` values.
+For local testing, run `redis-cli ping` and expect `PONG`, then start the Flask API with `python run.py`. Enter a phone number on **My Bookings**, click **Get code**, and read the code in the Flask terminal. The code is not in the API response. The terminal provider requires Flask development **debug mode**; `python run.py` enables it. Docker Compose runs the API in production mode, where terminal delivery is blocked and customer access returns 503 until a real delivery provider is added. Production startup requires strong `SECRET_KEY` and `JWT_SECRET_KEY` values. The anonymous `/api/setup-demo-data` route is disabled; use `seed_dev.py` only with an empty local database.
 
 ## Project Structure
 
@@ -69,7 +70,7 @@ spa-booking-api/
 
 ## API Documentation
 
-See REST_API_Specification.md in the project root for full API documentation.
+See [docs/REST_API_Specification.md](../docs/REST_API_Specification.md) for the implemented API contract.
 
 ## Docker
 
@@ -80,14 +81,13 @@ docker-compose up -d
 
 ## Testing
 
-```bash
-pytest
-```
+See [RUNNING.md](../RUNNING.md) for the cross-service test commands and the
+Task 12 live scenario instructions.
 
 ## Environment Variables
 
 Key variables in `.env`:
-- `DATABASE_URL` - Database URI (default: `sqlite:///prod.db`)
+- `DATABASE_URL` - Database URI (development default: `sqlite:///dev.db`, resolved in `instance/dev.db`)
 - `REDIS_URL` - Redis connection string
 - `SECRET_KEY` - Flask secret key
 - `JWT_SECRET_KEY` - JWT signing key

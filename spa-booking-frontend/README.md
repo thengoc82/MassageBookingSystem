@@ -23,6 +23,7 @@ cp .env.local.example .env.local
 3. Configure `.env.local`:
 ```
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
+NEXT_PUBLIC_CHATBOT_URL=http://localhost:8001
 ```
 
 4. Run development server:
@@ -52,8 +53,10 @@ spa-booking-frontend/
 ## Features
 
 - **Booking Flow**: Multi-step booking wizard
-- **My Bookings**: View and cancel bookings by phone
+- **My Bookings**: Verify a short-lived phone code, then view, edit, or cancel eligible bookings
 - **Shop Listings**: Browse locations and services
+- **Admin and therapist pages**: JWT-protected shifts, restrictions, bookings, and role-authorized status actions
+- **Chatbot**: Uses the FastAPI service on port 8001
 - **Responsive Design**: Mobile-first with Tailwind CSS
 - **TypeScript**: Full type safety
 
@@ -75,3 +78,8 @@ vercel deploy
 ## Environment Variables
 
 - `NEXT_PUBLIC_API_URL` - Backend API base URL
+- `NEXT_PUBLIC_CHATBOT_URL` - Chatbot service origin
+
+See [RUNNING.md](../RUNNING.md) for the complete local configuration and test
+commands. The phone code is printed only by the Flask development server;
+knowing a phone number or booking code does not grant booking access.

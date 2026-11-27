@@ -43,7 +43,6 @@ def create_app(config_name=None):
     from app.blueprints.auth import auth_bp
     from app.blueprints.bookings import bookings_bp
     from app.blueprints.public import public_bp
-    from app.blueprints.setup import setup_bp
     from app.blueprints.therapist import therapist_bp
     from app.blueprints.voice_booking import voice_bp
     from app.models import (
@@ -65,7 +64,6 @@ def create_app(config_name=None):
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(therapist_bp, url_prefix='/api/therapists')
     app.register_blueprint(voice_bp, url_prefix='/api/voice')
-    app.register_blueprint(setup_bp, url_prefix='/api')
 
     from app.utils.errors import register_error_handlers
     register_error_handlers(app)

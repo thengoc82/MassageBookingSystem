@@ -2,6 +2,12 @@
 
 **Base URL:** `/api`
 
+This describes the routes registered by the Flask API at Task 12. Admin and therapist
+routes require their respective JWT roles. Customer booking lookup and writes require
+the phone-scoped booking access token described below. The development terminal code
+provider requires Flask development **debug mode** and Redis; no production code
+delivery provider is configured. The anonymous demo-data setup route has been removed.
+
 ---
 
 ## Common Response Format
@@ -73,7 +79,8 @@ Retrieve shop detail by ID.
 
 **Response (200):** Same shape as list item.
 
-**Errors:** 404 SHOP_NOT_FOUND
+**Errors:** 404 `RESOURCE_NOT_FOUND`. The detail route can return a closed shop;
+the public list returns open shops only.
 
 ---
 
@@ -268,7 +275,7 @@ Create a new booking.
 ```json
 {
   "success": true,
-  "data": { "bookingId": 120, "bookingCode": "BK20260715001", "status": "Booked" },
+  "data": { "bookingId": 120, "bookingCode": "BK202607150001", "status": "Booked" },
   "message": "Booking created successfully."
 }
 ```
@@ -319,7 +326,7 @@ Retrieve bookings list with filters.
     "data": [
       {
         "bookingId": 120,
-        "bookingCode": "BK20260715001",
+        "bookingCode": "BK202607150001",
         "shopId": 1,
         "shopName": "ABC Spa",
         "phoneNumber": "0123456789",
@@ -410,7 +417,8 @@ Retrieve all shops including inactive ones.
 | page   | int    | No       | Default 1                    |
 | size   | int    | No       | Default 20                   |
 
-**Response (200):** Same shape as public endpoint.
+**Response (200):** Top-level `data` array and `pagination` object using the common
+paginated response format. Closed shops may appear in this admin list.
 
 ---
 
@@ -429,20 +437,15 @@ Create a new shop.
 }
 ```
 
-**Validation:** shopName required, address required, phoneNumber required + unique.
+**Validation:** `shopName`, `address`, and `phoneNumber` are required by the route.
+The current route does not perform a separate phone-format or uniqueness check.
 
 **Response (201):**
 ```json
 { "success": true, "data": { "shopId": 10 }, "message": "Shop created." }
 ```
 
-**Errors:**
-| HTTP | Code                | Condition           |
-| ---- | ------------------- | ------------------- |
-| 400  | SHOP_NAME_REQUIRED   | Missing name        |
-| 400  | ADDRESS_REQUIRED     | Missing address     |
-| 400  | INVALID_PHONE_NUMBER | Invalid format      |
-| 409  | SHOP_ALREADY_EXISTS  | Phone or name taken |
+**Errors:** 400 `VALIDATION_ERROR` for a missing required field.
 
 ---
 
@@ -461,7 +464,7 @@ Update shop information.
 { "shopName": "ABC Spa Premium", "status": "Open", "openTime": "09:00", "closeTime": "22:00" }
 ```
 
-**Errors:** 404 SHOP_NOT_FOUND
+**Errors:** 404 `RESOURCE_NOT_FOUND`.
 
 ---
 
@@ -483,38 +486,40 @@ Create a new course for a shop.
 
 **Request:**
 ```json
-{ "courseName": "Aromatherapy", "duration": 90, "price": 800000, "courseType": "main" }
+{ "courseName": "Aromatherapy", "durations": [{ "duration": 90, "price": 800000 }], "courseType": "main" }
 ```
 
-**Validation:** courseName required, duration > 0, price >= 0, courseType must be `main` or `addon`.
+**Validation:** `courseName` and a nonempty `durations` array are required. Each
+option has duration > 0 and price >= 0. `courseType` is `main` or `addon`.
 
 **Response (201):**
 ```json
-{ "success": true, "data": { "courseId": 10 }, "message": "Course created." }
+{ "success": true, "data": { "courseId": 10, "courseName": "Aromatherapy", "durations": [{ "duration": 90, "price": 800000 }], "courseType": "main" }, "message": "Course created" }
 ```
 
-**Errors:** 400 INVALID_COURSE_TYPE, 404 SHOP_NOT_FOUND
+**Errors:** 400 `VALIDATION_ERROR`, 404 `RESOURCE_NOT_FOUND`.
 
 ---
 
-### GET /api/admin/courses/{course_id}
-
-Retrieve course detail.
-
-**Errors:** 404 COURSE_NOT_FOUND
-
----
-
-### PATCH /api/admin/courses/{course_id}
+### PATCH /api/admin/shops/{shop_id}/courses/{course_id}
 
 Update course.
 
 **Request:**
 ```json
-{ "courseName": "Aromatherapy Premium", "price": 900000, "status": "inactive" }
+{ "courseName": "Aromatherapy Premium", "durations": [{ "duration": 90, "price": 900000 }], "status": "inactive" }
 ```
 
-**Errors:** 404 COURSE_NOT_FOUND, 400 INVALID_COURSE_TYPE
+**Supported fields:** `courseName`, `durations`, `courseType`, and `status`. The
+response includes course ID, name, all duration/price options, type, and status.
+
+**Errors:** 404 `RESOURCE_NOT_FOUND`, 400 `VALIDATION_ERROR` for invalid options or type.
+
+---
+
+### DELETE /api/admin/shops/{shop_id}/courses/{course_id}
+
+Set the course status to `inactive`; the row is retained. Returns the course ID.
 
 ---
 
@@ -539,11 +544,14 @@ Create a new therapist.
 {
   "name": "Anna",
   "gender": "Female",
-  "phoneNumber": "0999888777"
+  "phoneNumber": "0999888777",
+  "username": "anna",
+  "password": "local-password"
 }
 ```
 
-**Validation:** name required, gender required (Male/Female).
+**Validation:** `name`, `username`, `password`, and `gender` (`Male` or `Female`)
+are required. `phoneNumber` is optional.
 
 **Response (201):**
 ```json
@@ -552,41 +560,13 @@ Create a new therapist.
 
 ---
 
-### GET /api/admin/therapists/{therapist_id}
+### GET /api/admin/therapists/{therapist_id}/schedule
 
-Retrieve therapist detail with shift schedule.
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "therapistId": 5,
-    "shopId": 1,
-    "name": "Anna",
-    "gender": "Female",
-    "phoneNumber": "0999888777",
-    "status": "active",
-    "shifts": [
-      { "dayOfWeek": "Monday", "startTime": "08:00", "endTime": "17:00" },
-      { "dayOfWeek": "Tuesday", "startTime": "08:00", "endTime": "17:00" }
-    ]
-  }
-}
-```
-
----
-
-### PATCH /api/admin/therapists/{therapist_id}
-
-Update therapist.
-
-**Request:**
-```json
-{ "name": "Anna Nguyen", "phoneNumber": "0999888777", "status": "inactive" }
-```
-
-**Errors:** 404 THERAPIST_NOT_FOUND
+Return the therapist's active booking schedule for required `dateFrom` and
+`dateTo` query parameters. `data` contains `therapistId`, `name`, and a
+`schedule` array of booking IDs, codes, dates, times, customer phones, and statuses.
+This is distinct from the weekly shift-management routes below. There is no
+registered admin therapist detail or PATCH route.
 
 ---
 
@@ -751,30 +731,15 @@ Remove an entry from the active NG List by setting `isActive` to `false`. The re
 
 Retrieve all bookings with extended admin filters.
 
-**Query Parameters:**
-| Name       | Type   | Required | Description                              |
-| ---------- | ------ | -------- | ---------------------------------------- |
-| shopId     | int    | No       | Filter by shop                           |
-| customerId | int    | No       | Filter by customer                       |
-| phone      | string | No       | Search by phone                          |
-| status     | string | No       | `Booked`, `CheckedIn`, `CheckedOut`, `Cancelled` |
-| dateFrom   | string | No       | YYYY-MM-DD                               |
-| dateTo     | string | No       | YYYY-MM-DD                               |
-| therapistId| int    | No       | Filter by therapist                      |
-| page       | int    | No       | Default 1                                |
-| size       | int    | No       | Default 20, max 100                      |
+**Query Parameters:** `shopId`, `phone` (exact match), `status`, `dateFrom`,
+and `dateTo`. The current route does not implement `customerId`, `therapistId`,
+or pagination filters.
 
-**Response (200):** Paginated list (same shape as public + internal notes).
-
----
-
-### GET /api/admin/bookings/{booking_id}
-
-Retrieve full booking detail including internal notes.
-
-**Response (200):** Same as public + `"internalNotes": "VIP customer"`, `"createdBy": "admin"`, `"createdAt": "..."`.
-
-**Errors:** 404 BOOKING_NOT_FOUND
+**Response (200):** A top-level `data` array containing booking ID/code, shop ID,
+phone, date and times, guest count, therapist ID/name and per-person assignments,
+and status. It does not include internal notes. Admins retrieve a single booking
+through `GET /api/bookings/{booking_id}` with their admin JWT; there is no
+registered `/api/admin/bookings/{booking_id}` detail route.
 
 ---
 
@@ -809,33 +774,15 @@ Retrieve the authenticated therapist's schedule for a date range.
 | dateFrom | string | Yes      | YYYY-MM-DD     |
 | dateTo   | string | Yes      | YYYY-MM-DD     |
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "therapistId": 2,
-    "name": "Anna",
-    "shopId": 1,
-    "schedule": [
-      {
-        "date": "2026-07-15",
-        "dayOfWeek": "Wednesday",
-        "shiftStart": "08:00",
-        "shiftEnd": "17:00",
-        "bookings": [
-          { "bookingId": 120, "startTime": "10:00", "endTime": "11:00", "status": "Booked", "numberOfPeople": 1 }
-        ]
-      }
-    ]
-  }
-}
-```
+**Response (200):** `data` is an array of active (`Booked` or `CheckedIn`)
+bookings assigned to the therapist. Each item contains `bookingId`,
+`bookingCode`, `date`, `startTime`, `endTime`, `customerPhone`, and `status`.
+Weekly shift rows are managed through the admin shift routes.
 
 **Errors:**
 | HTTP | Code               | Condition            |
 | ---- | ------------------ | -------------------- |
-| 400  | DATE_REQUIRED      | Missing date range   |
+| 400  | VALIDATION_ERROR   | Missing date range   |
 | 401  | UNAUTHORIZED       | Not authenticated    |
 | 403  | FORBIDDEN          | Not a therapist role |
 
@@ -856,12 +803,20 @@ POST   /api/booking-access/challenges
 POST   /api/booking-access/verifications
 ```
 
-### Customer phone token or staff JWT
+### Verified customer phone token
 ```
 GET    /api/bookings
 GET    /api/bookings/{booking_id}
 PATCH  /api/bookings/{booking_id}
 PATCH  /api/bookings/{booking_id}/cancel
+```
+
+An admin JWT may also read, edit, or cancel a specific booking through these
+detail routes. An assigned therapist JWT may read that booking's detail only.
+The customer list route requires a matching verified phone query parameter.
+The following shared-path transitions require an **admin JWT only**:
+
+```
 PATCH  /api/bookings/{booking_id}/checkin
 PATCH  /api/bookings/{booking_id}/checkout
 ```
@@ -875,13 +830,15 @@ PATCH  /api/admin/shops/{shop_id}
 
 GET    /api/admin/shops/{shop_id}/courses
 POST   /api/admin/shops/{shop_id}/courses
-GET    /api/admin/courses/{course_id}
-PATCH  /api/admin/courses/{course_id}
+PATCH  /api/admin/shops/{shop_id}/courses/{course_id}
+DELETE /api/admin/shops/{shop_id}/courses/{course_id}
 
 GET    /api/admin/shops/{shop_id}/therapists
 POST   /api/admin/shops/{shop_id}/therapists
-GET    /api/admin/therapists/{therapist_id}
-PATCH  /api/admin/therapists/{therapist_id}
+GET    /api/admin/therapists/{therapist_id}/schedule
+
+GET    /api/admin/customers
+GET    /api/admin/customers/{customer_id}
 
 GET    /api/admin/shops/{shop_id}/therapist-shifts
 POST   /api/admin/therapist-shifts
@@ -896,7 +853,9 @@ PATCH  /api/admin/customer-restrictions/{restriction_id}
 DELETE /api/admin/customer-restrictions/{restriction_id}
 
 GET    /api/admin/bookings
-GET    /api/admin/bookings/{booking_id}
+PATCH  /api/admin/bookings/{booking_id}/cancel
+PATCH  /api/admin/bookings/{booking_id}/checkin
+PATCH  /api/admin/bookings/{booking_id}/checkout
 GET    /api/admin/shops/{shop_id}/available-slots
 ```
 

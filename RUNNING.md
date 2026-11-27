@@ -1,188 +1,89 @@
-# AI Massage Booking System - Application Running! 🚀
+# Run the local booking system
 
-## ✅ Both Applications Are Live!
+The application has a Flask booking API (port 5000), a Next.js frontend
+(port 3000), and a FastAPI chatbot (port 8001). Redis is required for phone
+verification and chat sessions. PostgreSQL with pgvector is required for FAQ
+retrieval. Booking data uses SQLite by default.
 
-**Frontend:** http://localhost:3000  
-**Backend API:** http://localhost:5000
+## Configuration
 
----
+Use the existing `spa-booking-api/.env`, `chatbot/.env`, and
+`spa-booking-frontend/.env.local` templates without committing secrets.
+The essential settings are:
 
-## Current Status
+| Component | Setting | Local value or purpose |
+| --- | --- | --- |
+| Flask | `FLASK_ENV=development` | Enables the development terminal code provider. Run `python run.py`, which sets debug mode. |
+| Flask | `DATABASE_URL` | Optional. Default is `sqlite:///dev.db`, stored in `spa-booking-api/instance/dev.db`. |
+| Flask | `REDIS_URL` | Default `redis://localhost:6379/0`. Required for customer access codes. |
+| Flask | `SECRET_KEY`, `JWT_SECRET_KEY` | Set strong, private values for a deployment. |
+| Frontend | `NEXT_PUBLIC_API_URL` | `http://localhost:5000/api`. |
+| Frontend | `NEXT_PUBLIC_CHATBOT_URL` | `http://localhost:8001`. |
+| Chatbot | `CHATBOT_GATEWAY_FLASK_BASE_URL` | Default `http://localhost:5000/api`. |
+| Chatbot | `CHATBOT_REDIS_URL` | Default `redis://localhost:6379/0`. |
+| Chatbot | `CHATBOT_PG_DSN` | PostgreSQL connection for indexed FAQ retrieval. |
+| Chatbot | `CHATBOT_OPENAI_API_KEY` | Optional. Without it, supported FAQs return cited excerpts. |
 
-### Backend (Flask)
-- ✅ Running on http://localhost:5000
-- ✅ Database created (SQLite)
-- ✅ Migrations applied
-- ⚠️ No sample data yet (empty database)
+Twilio, payment, voice, and other external service credentials are not needed
+for the local web and chat booking journeys. The production Flask configuration
+has no customer code delivery provider, so verified customer lookup and edits
+are unavailable there until a provider is added.
 
-### Frontend (Next.js)
-- ✅ Running on http://localhost:3000
-- ✅ Connected to backend API
-- ✅ All pages functional
+## Start
 
----
+1. Start Redis and PostgreSQL with the vector extension. Create a repository
+   root Python environment with `python3 -m venv venv`, then install both
+   service manifests with
+   `venv/bin/python -m pip install -r spa-booking-api/requirements.txt -r chatbot/requirements.txt`.
+   From `spa-booking-frontend`, install Node dependencies with `npm install`.
+2. From `spa-booking-api`, run
+   `../venv/bin/python -m flask --app run:app db upgrade`. On an empty
+   development database, run `../venv/bin/python seed_dev.py` for local
+   shops, courses, therapists, shifts, and staff accounts. Seed data is for
+   development only. The public `/api/setup-demo-data` route is disabled.
+3. From `spa-booking-api`, run `../venv/bin/python run.py`. Confirm
+   `GET http://localhost:5000/api/shops`.
+4. From the repository root, run
+   `venv/bin/python -m chatbot.scripts.index_knowledge_base` to index
+   `docs/knowledge`, then `venv/bin/python -m chatbot.main`. Confirm
+   `GET http://localhost:8001/health`.
+5. From `spa-booking-frontend`, run `npm run dev`, then open
+   `http://localhost:3000/shops`.
 
-## Next Steps
+The development seed's zero-minute add-ons are excluded from the public
+bookable catalog. Create positive-duration add-ons with an admin JWT if that
+scenario is needed.
 
-### 1. Add Sample Data
+## Customer and staff access
 
-You can add sample data manually via API:
+Public booking creation does not require login. To see, edit, or cancel a
+booking, request a code on **My Bookings** and read it from the Flask terminal.
+The code lasts five minutes and is never returned by the API. A verified token
+lasts 30 minutes and only grants access to bookings for that phone. The
+development terminal provider is a local test mechanism; it does not prove
+control of a phone.
 
-**Create a Shop:**
-```bash
-curl -X POST http://localhost:5000/api/admin/shops \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shopName": "ABC Spa",
-    "address": "123 Main Street, District 1, HCMC",
-    "phoneNumber": "0123456789",
-    "openTime": "08:00",
-    "closeTime": "21:00"
-  }'
+Admin and therapist pages use `POST /api/auth/login` and their role JWTs.
+Admins manage shifts and NG List records and may check bookings in and out.
+Assigned therapists may view and check in/out their own bookings. Staff
+endpoints are not public.
+
+## Tests
+
+From the repository root, run chatbot tests with:
+
+```sh
+venv/bin/python -m pytest -q -p no:asyncio -p scripts.pytest_asyncio_compat chatbot/tests
 ```
 
-**Create Courses:**
-```bash
-# Thai Massage
-curl -X POST http://localhost:5000/api/admin/shops/1/courses \
-  -H "Content-Type: application/json" \
-  -d '{
-    "courseName": "Thai Massage",
-    "duration": 60,
-    "price": 500000,
-    "courseType": "main"
-  }'
+From `spa-booking-api`, run Flask tests with:
 
-# Swedish Massage
-curl -X POST http://localhost:5000/api/admin/shops/1/courses \
-  -H "Content-Type: application/json" \
-  -d '{
-    "courseName": "Swedish Massage",
-    "duration": 90,
-    "price": 700000,
-    "courseType": "main"
-  }'
-
-# Aromatherapy (addon)
-curl -X POST http://localhost:5000/api/admin/shops/1/courses \
-  -H "Content-Type: application/json" \
-  -d '{
-    "courseName": "Aromatherapy",
-    "duration": 30,
-    "price": 200000,
-    "courseType": "addon"
-  }'
+```sh
+PYTHONPATH=.. ../venv/bin/python -m pytest -q -p no:asyncio -p scripts.pytest_asyncio_compat tests
 ```
 
-**Create Therapists:**
-```bash
-curl -X POST http://localhost:5000/api/admin/shops/1/therapists \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Anna Nguyen",
-    "gender": "Female",
-    "phoneNumber": "0987654321"
-  }'
-```
-
-### 2. Test the Booking Flow
-
-1. Open http://localhost:3000
-2. Click "Book Now"
-3. Select shop, date, guests, services
-4. Complete booking with phone number
-
-### 3. View Bookings
-
-1. Go to http://localhost:3000/my-bookings
-2. Enter your phone number
-3. View/cancel bookings
-
----
-
-## API Endpoints Available
-
-### Public (No Auth)
-- `GET /api/shops` - List all shops
-- `GET /api/shops/{id}` - Get shop details
-- `GET /api/shops/{id}/courses` - Get courses
-- `GET /api/shops/{id}/available-slots` - Find available slots
-- `POST /api/bookings` - Create booking
-- `GET /api/bookings?phone=xxx` - Get bookings by phone
-
-### Admin (No Auth Required for Testing)
-- `POST /api/admin/shops` - Create shop
-- `POST /api/admin/shops/{id}/courses` - Create course
-- `POST /api/admin/shops/{id}/therapists` - Create therapist
-
----
-
-## Database Location
-
-SQLite database: `spa-booking-api/instance/spa_booking.db`
-
-You can inspect it with:
-```bash
-sqlite3 instance/spa_booking.db
-.tables
-SELECT * FROM shops;
-```
-
----
-
-## Stopping the Applications
-
-**Stop Backend:**
-```bash
-pkill -f "python run.py"
-```
-
-**Stop Frontend:**
-```bash
-pkill -f "next dev"
-```
-
----
-
-## Troubleshooting
-
-**Backend not responding?**
-```bash
-cd spa-booking-api
-source venv/bin/activate
-python run.py
-```
-
-**Frontend not responding?**
-```bash
-cd spa-booking-frontend
-npm run dev
-```
-
-**Check if services are running:**
-```bash
-curl http://localhost:5000/api/shops
-curl http://localhost:3000
-```
-
----
-
-## Features Working
-
-✅ Shop listings  
-✅ Course browsing  
-✅ Multi-step booking wizard  
-✅ Phone number lookup  
-✅ Booking creation  
-✅ Booking management  
-✅ Available slot checking  
-✅ Therapist selection  
-✅ Responsive UI  
-
----
-
-## Ready to Use!
-
-Visit **http://localhost:3000** to start using the application.
-
-Add sample data using the curl commands above, then test the full booking flow!
+From `spa-booking-frontend`, run `npm test -- --runInBand` and
+`./node_modules/.bin/playwright test e2e/booking-flow.spec.ts --browser=chromium`.
+The existing booking-flow browser tests mock Flask. Opt-in live HTTP and
+browser commands, their isolated database setup, and results are recorded in
+[Task 12](docs/progress/task-12.md).

@@ -1,9 +1,15 @@
 # AI Massage Booking System - Project Overview
 
+> Historical project snapshot. For the Task 12 implementation and measured
+> local results, use [README.md](README.md),
+> [docs/APPLICATION_OVERVIEW.md](docs/APPLICATION_OVERVIEW.md), and
+> [docs/progress/task-12.md](docs/progress/task-12.md). Production readiness
+> is not established by the local scenario suite.
+
 ## Quick Summary
 A complete, production-ready full-stack application for managing massage spa bookings with real-time therapist scheduling, customer management, and comprehensive business rule enforcement.
 
-**Status**: ✅ Production Ready  
+**Status**: Historical snapshot; locally verified Task 12 results are linked above.
 **Backend**: Flask API at `http://localhost:5000`  
 **Frontend**: Next.js at `http://localhost:3000`  
 
@@ -99,16 +105,17 @@ A complete, production-ready full-stack application for managing massage spa boo
 
 ## API Overview (40+ Endpoints)
 
-### Public (No Auth Required)
+### Public discovery and phone-verified customer routes
 - `GET /api/shops` - List all shops
 - `GET /api/shops/{id}/courses` - Get shop services
 - `GET /api/shops/{id}/available-slots` - Real-time slot checking
 - `GET /api/shops/{id}/available-therapists` - Therapist availability
 - `POST /api/booking-eligibility-checks` - Phone validation
 - `POST /api/bookings` - Create booking (confirms slot immediately)
-- `GET /api/bookings` - List bookings by phone
-- `GET /api/bookings/{id}` - Booking details
-- `PATCH /api/bookings/{id}` - Modify booking (while Booked)
+- `POST /api/booking-access/challenges` and `/verifications` - Obtain a phone-scoped token
+- `GET /api/bookings` - List bookings for the verified phone only
+- `GET /api/bookings/{id}` - Booking details for the verified phone or authorized staff
+- `PATCH /api/bookings/{id}` - Modify a verified customer's `Booked` booking or use an admin JWT
 
 ### Admin (JWT Required)
 - `POST /api/admin/shops` - Create shop
@@ -132,7 +139,8 @@ cd "spa-booking-api"
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-# Database auto-creates on first run
+flask --app run:app db upgrade  # Apply existing migrations
+python seed_dev.py              # Empty local development database only
 python run.py
 ```
 
@@ -154,7 +162,7 @@ npm run dev
 ### Real-Time Scheduling
 - **Gantt View**: `/dashboard` - Click cells to book therapists directly
 - **Optimistic UI**: Shows capacity, bookings update instantly when conflicts
-- **No Locks**: Instant confirmation, no "slot taken" surprises
+- **Final capacity check**: A displayed slot can disappear before confirmation; the form offers alternatives
 
 ### Multi-Step Booking Wizard
 1. Select shop & date
@@ -267,14 +275,14 @@ npm test
 
 2. **Initialize database**
    ```bash
-   python3 -c "from app import create_app; from app.extensions import db; app = create_app(); app.app_context().push(); db.create_all()"
+   flask --app run:app db upgrade
    ```
 
 3. **Start servers**
    - Backend: `python run.py` in `spa-booking-api`
    - Frontend: `npm run dev` in `spa-booking-frontend`
 
-4. **Seed initial data** (via API or script)
+4. **Seed an empty local database** with `python seed_dev.py`
    - Shops
    - Courses (main + addon services)
    - Therapists

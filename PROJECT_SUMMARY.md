@@ -1,5 +1,10 @@
 # Project Summary
 
+> Historical project snapshot from July 2026. For the Task 12 implementation,
+> use [README.md](README.md),
+> [docs/APPLICATION_OVERVIEW.md](docs/APPLICATION_OVERVIEW.md), and
+> [docs/progress/task-12.md](docs/progress/task-12.md).
+
 ## AI Massage Booking System - Build Complete ✅
 
 **Date**: July 16, 2026
@@ -123,15 +128,16 @@
 
 ## API Endpoints Summary
 
-**Public** (no auth required):
+**Public discovery and phone-verified customer routes:**
 - `GET /api/shops` - List shops
 - `GET /api/shops/{id}/courses` - Get courses
 - `GET /api/shops/{id}/available-slots` - Find slots
 - `GET /api/shops/{id}/available-therapists` - List therapists
 - `POST /api/booking-eligibility-checks` - Check eligibility
 - `POST /api/bookings` - Create booking
-- `GET /api/bookings` - List bookings (by phone)
-- `PATCH /api/bookings/{id}/cancel` - Cancel booking
+- `POST /api/booking-access/challenges` and `/verifications` - Obtain a phone-scoped token
+- `GET /api/bookings` - List bookings for the verified phone only
+- `PATCH /api/bookings/{id}/cancel` - Cancel the verified customer's `Booked` booking
 
 **Admin** (JWT required):
 - `POST /api/admin/shops` - Create shop
@@ -156,9 +162,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with database credentials
-flask db init
-flask db migrate -m "Initial migration"
-flask db upgrade
+flask --app run:app db upgrade  # Apply the repository's existing migrations
+python seed_dev.py              # Empty local development database only
 python run.py
 ```
 → http://localhost:5000

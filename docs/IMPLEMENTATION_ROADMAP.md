@@ -2,7 +2,10 @@
 
 Updated: 2026-11-27
 
-This roadmap preserves the order, dependencies, risks, and verification criteria of the 12-task implementation review. Status and scope have been checked against the current source and project documents. It is a plan for the remaining work, not a claim that unrun scenarios have passed. No tests were run while preparing this document.
+This roadmap preserves the order, dependencies, and verification criteria of the
+12-task implementation review. Tasks 1–12 are complete for the measured local
+development configuration. See [Task 12](progress/task-12.md) for the scenarios
+actually run and the remaining deployment boundaries.
 
 ## Decisions and corrections to the review
 
@@ -144,7 +147,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Verification:** The chatbot suite passed 300 tests. Local Redis and chatbot health checks passed; the updated code was exercised against Redis and pgvector, and live shop hours and prices matched the running Flask API. The local port 8001 process was restarted, and `/chat` returned a single relevant cancellation citation, an explicit medical uncertainty answer, and the corrected private-room answer. No `CHATBOT_OPENAI_API_KEY` is configured locally, so live LLM generation was tested with a mock rather than an external call.
 
-### 12. Run the complete scenario suite and reconcile documentation — planned
+### 12. Run the complete scenario suite and reconcile documentation — completed locally
 
 **Depends on:** Tasks 1–11 and a runnable frontend, booking API, chatbot, Redis, and configured knowledge store for the scenarios that use them.
 
@@ -153,3 +156,17 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** The report describes some routes and outcomes as complete without a recorded live result. TC-02's combined reject-and-assign wording conflicts with the accepted group rule; test the rejection and valid automatic assignment as separate requests. TC-04 needs both the backend race result and the customer alternative-slot result.
 
 **Verify:** Record actual pass/fail evidence for all eight scenarios, including booking status transitions, chatbot confirmation, and grounded FAQ retrieval. Inspect the final diff and confirm API response compatibility before marking the roadmap complete.
+
+**Implementation and measured result:** The Task 12 tests add seven opt-in live
+HTTP scenarios and two Chromium journeys through the running Next.js frontend,
+the isolated Flask API, Redis, and the chatbot with indexed FAQ retrieval. They
+cover TC-01–TC-08 with the accepted TC-02 and TC-03 privacy interpretations,
+plus customer and staff authorization, edits, shifts, NG List management,
+invalid input, and changed availability. The live scenarios include a rejected
+edit after every therapist at the new time became occupied; its original
+booking remains unchanged. The final clean run passed all seven HTTP scenarios
+and both browser journeys. The anonymous demo-data route was
+removed because it created known admin credentials on an empty database.
+The REST API and running instructions now match registered routes and actual
+responses. [Task 12](progress/task-12.md) distinguishes these live results
+from mocked tests and untested production or non-SQLite paths.

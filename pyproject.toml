@@ -11,4 +11,5 @@ mypy_path = ["."]
 
 [tool.pytest.ini_options]
 norecursedirs = "spa-booking-api/tests"
+markers = ["asyncio: coroutine test run by the repository compatibility plugin"]
 
