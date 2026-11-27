@@ -192,6 +192,8 @@ Availability is **optimistic** — shown as it was at query time. Creation reche
 ### Service Assignment
 Each person in a Booking receives the same sequence of 1 or more selected main Courses + 0 to N addon Courses. This preserves the existing multiple-main-course booking flow. The selected durations and prices can be submitted as `selectedCourses` in booking preferences because `services` contains only `personIndex` and `courseId`. For a single course, the reserved duration can identify its catalog option; for courses with one option, that option is unambiguous. Otherwise `selectedCourses` is required. Every submitted option must match the active course catalog. The selected durations sum to the reserved duration for each guest; total price is the per-guest course sum multiplied by guest count.
 
+Public service discovery lists active Courses at open Shops only when they have at least one catalog option accepted by booking creation (`duration` is a positive integer and `price` is a nonnegative integer). A Course may have several duration and price options, including different prices for the same duration; clients retain the chosen pair. Slot availability depends on the selected date, total duration, guest count, and therapist shifts and bookings. It remains provisional until booking creation succeeds. The catalog has no service description field or stored booking total.
+
 ### Booking Modification
 - Only `Booked` status bookings can be modified.
 - Changing time triggers therapist availability re-check at the POS level.

@@ -259,9 +259,7 @@ class BookingService:
                     raise ResourceNotFound('Course')
                 if course.shop_id != shop_id or course.course_type != kind or course.status != 'active':
                     raise ValidationError('Selected course is unavailable at this shop or has the wrong type')
-                catalog_options = [option for option in course.get_durations()
-                                   if type(option.get('duration')) is int and option['duration'] > 0
-                                   and type(option.get('price')) is int and option['price'] >= 0]
+                catalog_options = course.get_bookable_durations()
                 chosen = options_by_id.get(course_id)
                 if chosen:
                     if not any(option['duration'] == chosen['duration'] and option['price'] == chosen['price'] for option in catalog_options):

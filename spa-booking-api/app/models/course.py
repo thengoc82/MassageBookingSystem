@@ -35,3 +35,20 @@ class Course(db.Model):
 
     def set_durations(self, durations):
         self.durations_json = json.dumps(durations, ensure_ascii=False)
+
+    def get_bookable_durations(self):
+        """Options accepted by booking creation for an active course."""
+        options = self.get_durations()
+        if not isinstance(options, list):
+            return []
+        valid = []
+        seen = set()
+        for option in options:
+            if (isinstance(option, dict) and type(option.get('duration')) is int
+                    and option['duration'] > 0 and type(option.get('price')) is int
+                    and option['price'] >= 0):
+                key = (option['duration'], option['price'])
+                if key not in seen:
+                    valid.append({'duration': key[0], 'price': key[1]})
+                    seen.add(key)
+        return valid

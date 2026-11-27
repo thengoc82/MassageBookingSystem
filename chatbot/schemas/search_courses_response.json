@@ -8,14 +8,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["courseId", "courseName", "duration", "price", "courseType", "status"],
+        "required": ["courseId", "courseName", "durations", "courseType"],
         "properties": {
           "courseId": {"type": "integer"},
           "courseName": {"type": "string"},
-          "duration": {"type": "integer", "minimum": 1},
-          "price": {"type": "integer", "minimum": 0},
+          "durations": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["duration", "price"], "properties": {"duration": {"type": "integer", "minimum": 1}, "price": {"type": "integer", "minimum": 0}}}},
           "courseType": {"type": "string", "enum": ["main", "addon"]},
-          "status": {"type": "string", "enum": ["Active", "Inactive"]}
+          "status": {"type": "string", "enum": ["active", "inactive"]}
         }
       }
     },

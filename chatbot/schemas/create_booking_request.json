@@ -1,21 +1,23 @@
 {
   "type": "object",
   "properties": {
-    "shopId": { "type": "string" },
+    "shopId": { "type": "integer" },
     "phoneNumber": { "type": "string" },
     "bookingDate": { "type": "string" },
     "startTime": { "type": "string" },
+    "duration": { "type": "integer", "minimum": 1 },
     "numberOfPeople": { "type": "integer" },
     "services": { 
       "type": "array", 
-      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "string" } } } 
+      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "integer" } } }
     },
     "addOns": { 
       "type": "array", 
-      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "string" } } } 
+      "items": { "type": "object", "properties": { "personIndex": { "type": "integer" }, "courseId": { "type": "integer" } } }
     },
-    "therapistId": { "type": "string" },
-    "therapistGender": { "type": "string" }
+    "selectedCourses": {"type": "array", "items": {"type": "object", "required": ["courseId", "duration", "price"], "properties": {"courseId": {"type": "integer"}, "duration": {"type": "integer", "minimum": 1}, "price": {"type": "integer", "minimum": 0}}}},
+    "therapistPreferenceType": {"type": "string", "enum": ["no_preference", "specific", "gender"]},
+    "therapistPreferenceValue": {"type": ["integer", "string"]}
   },
-  "required": ["shopId", "phoneNumber", "bookingDate", "startTime", "numberOfPeople", "services"]
+  "required": ["shopId", "phoneNumber", "bookingDate", "startTime", "duration", "numberOfPeople", "services"]
 }

@@ -16,7 +16,7 @@ const courses = [
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (api.shops.getById as jest.Mock).mockResolvedValue({ data: { shopId: 7, shopName: 'Shinjuku Store' } });
+  (api.shops.getById as jest.Mock).mockResolvedValue({ data: { shopId: 7, shopName: 'Shinjuku Store', status: 'Open' } });
   (api.shops.getCourses as jest.Mock).mockResolvedValue({ data: courses });
   (api.shops.getAvailableSlots as jest.Mock).mockResolvedValue({ data: [{ startTime: '10:00', endTime: '11:00', availableCapacity: 2 }] });
   (api.bookings.create as jest.Mock).mockResolvedValue({ data: { bookingCode: 'BK123' } });
@@ -79,6 +79,26 @@ test('sends every selected course for each guest', async () => {
     numberOfPeople: 2,
     services: [{ personIndex: 1, courseId: 11 }, { personIndex: 1, courseId: 12 }, { personIndex: 2, courseId: 11 }, { personIndex: 2, courseId: 12 }],
   }));
+});
+
+test('sends add-ons and exact catalog prices for every guest', async () => {
+  (api.shops.getCourses as jest.Mock).mockResolvedValue({ data: [
+    { courseId: 11, courseName: 'Full Body Massage', courseType: 'main', durations: [{ duration: 30, price: 3000 }, { duration: 30, price: 3500 }] },
+    { courseId: 20, courseName: 'Head Add-on', courseType: 'addon', durations: [{ duration: 30, price: 1000 }, { duration: 0, price: 500 }] },
+  ] });
+  render(<BookingForm context={context} />);
+  await screen.findByText('Shinjuku Store');
+  fireEvent.click(screen.getByRole('button', { name: 'Full Body Massage, 30 minutes, 3,500 VND' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Head Add-on, 30 minutes, 1,000 VND' }));
+  fireEvent.change(screen.getByLabelText(/Phone Number/), { target: { value: '0901234567' } });
+  expect(screen.queryByRole('button', { name: 'Head Add-on, 0 minutes, 500 VND' })).not.toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Select Courses' })).getByText('9,000 VND')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  await waitFor(() => expect(api.bookings.create).toHaveBeenCalledWith(expect.objectContaining({
+    services: [{ personIndex: 1, courseId: 11 }, { personIndex: 2, courseId: 11 }],
+    addOns: [{ personIndex: 1, courseId: 20 }, { personIndex: 2, courseId: 20 }],
+    selectedCourses: [{ courseId: 11, duration: 30, price: 3500 }, { courseId: 20, duration: 30, price: 1000 }],
+  })));
 });
 
 test('does not submit when the selected slot is gone', async () => {

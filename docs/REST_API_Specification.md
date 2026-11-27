@@ -79,25 +79,25 @@ Retrieve shop detail by ID.
 
 ### GET /api/shops/{shop_id}/courses
 
-Retrieve courses for a shop. Optionally filter by type.
+Retrieve active courses with bookable duration and price options at an open shop. Options with nonpositive duration or negative price are omitted; a course with no remaining options is omitted. Availability for a date and time is queried separately through `available-slots` and rechecked on booking creation. Course descriptions are not stored.
 
 **Query Parameters:**
 | Name  | Type    | Required | Description                |
 | ----- | ------- | -------- | -------------------------- |
-| type  | string  | No       | Filter: `main` or `addon`  |
+| type  | string  | No       | Filter: `main` or `addon`; any other value is rejected |
 
 **Response (200):**
 ```json
 {
   "success": true,
   "data": [
-    { "courseId": 1, "courseName": "Thai Massage", "duration": 60, "price": 500000, "courseType": "main" },
-    { "courseId": 2, "courseName": "Hot Stone", "duration": 30, "price": 200000, "courseType": "addon" }
+    { "courseId": 1, "courseName": "Thai Massage", "durations": [{ "duration": 30, "price": 300000 }, { "duration": 60, "price": 500000 }], "courseType": "main" },
+    { "courseId": 2, "courseName": "Aromatherapy", "durations": [{ "duration": 15, "price": 100000 }], "courseType": "addon" }
   ]
 }
 ```
 
-**Errors:** 404 SHOP_NOT_FOUND
+**Errors:** 404 `RESOURCE_NOT_FOUND` if the shop is missing or closed; 400 `VALIDATION_ERROR` for an unsupported `type`.
 
 ---
 

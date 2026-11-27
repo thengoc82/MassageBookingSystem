@@ -76,6 +76,14 @@ from chatbot.tools.write_tools import (
 )
 
 
+def _valid_course_options(course: CourseInfo) -> list[Any]:
+    options = course.durations or (
+        [course] if course.duration is not None and course.price is not None else []
+    )
+    return [item for item in options if type(item.duration) is int and item.duration > 0
+            and type(item.price) is int and item.price >= 0]
+
+
 class ChatRequest(BaseModel):
     """Chat request model."""
 
@@ -498,14 +506,16 @@ class ChatEndpoint:
                     conversation.add_message("assistant", msg)
                     response = IntentResponse(False, msg, state, conversation)
                 else:
-                    details = await self._extract_turn_details(request.message, state, classified)
-                    response = await self._apply_booking_revision(
-                        request.message, details, state, conversation
-                    )
+                    response = await self._handle_extra_course_reply(request.message, state, conversation)
                     if response is None:
-                        response = await self._handle_booking_confirmation_reply(
-                            request.message, state, conversation
+                        details = await self._extract_turn_details(request.message, state, classified)
+                        response = await self._apply_booking_revision(
+                            request.message, details, state, conversation
                         )
+                        if response is None:
+                            response = await self._handle_booking_confirmation_reply(
+                                request.message, state, conversation
+                            )
                 if response is None:
                     response = await self._handle_phone_reply(request.message, state, conversation)
                 if response is None:
@@ -605,6 +615,9 @@ class ChatEndpoint:
         elif state.phase == ConversationPhase.COLLECTING_INFO:
             ctx.course_id = ctx.course_name = None
             ctx.course_duration_options = []
+            ctx.catalog_courses = []
+            ctx.selected_course_options = []
+            ctx.primary_price = None
             ctx.duration = None
             state.phase = ConversationPhase.SEARCHING_COURSES
             return await self._run_search_courses(state, conversation, metrics)
@@ -612,6 +625,9 @@ class ChatEndpoint:
             ctx.shop_id = ctx.shop_name = None
             ctx.course_id = ctx.course_name = None
             ctx.course_duration_options = []
+            ctx.catalog_courses = []
+            ctx.selected_course_options = []
+            ctx.primary_price = None
             ctx.duration = None
             state.phase = ConversationPhase.SEARCHING_SHOPS
             return await self._run_search_shops(state, conversation, metrics)
@@ -672,6 +688,9 @@ class ChatEndpoint:
             ctx.course_duration_options = []
             ctx.duration = None
             ctx.addon_ids = []
+            ctx.catalog_courses = []
+            ctx.selected_course_options = []
+            ctx.primary_price = None
             state.pending_action = None
             state.offered_slot_time = None
             state.slot_confirmed = False
@@ -689,6 +708,8 @@ class ChatEndpoint:
             ctx.course_duration_options = []
             ctx.duration = None
             ctx.addon_ids = []
+            ctx.selected_course_options = []
+            ctx.primary_price = None
             state.pending_action = None
             state.offered_slot_time = None
             state.slot_confirmed = False
@@ -725,6 +746,9 @@ class ChatEndpoint:
             return self._prepare_booking_confirmation(state, conversation)
 
         if changed_existing & {"date", "duration", "number_of_people", "start_time", "time_preference"}:
+            if "duration" in changed_existing:
+                ctx.selected_course_options = []
+                ctx.primary_price = None
             state.pending_action = None
             state.offered_slot_time = None
             state.slot_confirmed = False
@@ -774,6 +798,66 @@ class ChatEndpoint:
             state, conversation, get_metrics(), intro=f"You chose {shop.shopName}. "
         )
 
+    def _set_primary_course(self, state: ConversationState, course: CourseInfo, catalog: list[CourseInfo], message: str = "") -> None:
+        ctx = state.booking_context
+        ctx.course_id = course.courseId
+        ctx.course_name = course.courseName
+        ctx.course_duration_options = sorted({option.duration for option in _valid_course_options(course)})
+        ctx.catalog_courses = [item.model_dump(mode="json") for item in catalog]
+        ctx.selected_course_options = []
+        ctx.primary_price = None
+        price_match = re.search(r"\b([\d,]+)\s*(?:vnd|đ)\b", message.casefold())
+        if price_match:
+            ctx.primary_price = int(price_match.group(1).replace(",", ""))
+
+    async def _handle_extra_course_reply(
+        self, message: str, state: ConversationState, conversation: Conversation
+    ) -> IntentResponse | None:
+        if not re.match(r"^\s*(?:add|include)\b", message, re.IGNORECASE):
+            return None
+        if state.phase not in {
+            ConversationPhase.COLLECTING_INFO, ConversationPhase.SEARCHING_SLOTS,
+            ConversationPhase.COLLECTING_PHONE, ConversationPhase.CONFIRMING_ACTION,
+        } or not state.booking_context.course_id:
+            return None
+        ctx = state.booking_context
+        catalog = [CourseInfo.model_validate(item) for item in ctx.catalog_courses]
+        course, _ = _course_selection(message, catalog)
+        if course is None:
+            msg = "Please name a listed course or add-on to add."
+        elif course.courseId == ctx.course_id or any(item['courseId'] == course.courseId for item in ctx.selected_course_options):
+            msg = "That course is already selected. Choose a different course or add-on."
+        elif not ctx.selected_course_options:
+            msg = "Choose the main course duration first, then add another course or add-on."
+        else:
+            options = _valid_course_options(course)
+            duration_match = re.search(r"\b(\d+)\s*(?:m|min|minutes)\b", message.casefold())
+            price_match = re.search(r"\b([\d,]+)\s*(?:vnd|đ)\b", message.casefold())
+            duration = int(duration_match.group(1)) if duration_match else None
+            price = int(price_match.group(1).replace(",", "")) if price_match else None
+            choices = [option for option in options if (duration is None or option.duration == duration)
+                       and (price is None or option.price == price)]
+            if len(choices) != 1:
+                labels = ", ".join(f"{item.duration} min at {item.price:,} VND" for item in options)
+                msg = f"Choose one option for {course.courseName}: {labels}. Say 'add {course.courseName} 15 min 100,000 VND', using an option shown."
+            else:
+                option = choices[0]
+                ctx.selected_course_options.append({
+                    'courseId': course.courseId, 'courseName': course.courseName,
+                    'courseType': course.courseType, 'duration': option.duration, 'price': option.price,
+                })
+                ctx.duration = sum(item['duration'] for item in ctx.selected_course_options)
+                ctx.start_time = None
+                ctx.time_preference = None
+                state.pending_action = None
+                state.offered_slot_time = None
+                state.slot_confirmed = False
+                state.suggested_slot_times = []
+                state.phase = ConversationPhase.COLLECTING_INFO
+                return await self._advance_booking_details(state, conversation)
+        conversation.add_message("assistant", msg)
+        return IntentResponse(False, msg, state, conversation)
+
     async def _handle_course_reply(
         self, message: str, state: ConversationState, conversation: Conversation
     ) -> IntentResponse | None:
@@ -795,7 +879,9 @@ class ChatEndpoint:
         }:
             return None
 
-        course, status = _course_selection(message, result.data)
+        catalog = [item for item in result.data if item.courseType in {'main', 'addon'}
+                   and item.status not in {'inactive', 'Inactive'} and _valid_course_options(item)]
+        course, status = _course_selection(message, catalog)
         if course is None:
             if status == "unrelated" and intent != IntentType.UNKNOWN:
                 return None
@@ -807,12 +893,13 @@ class ChatEndpoint:
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
 
+        if course.courseType != "main":
+            msg = "That is an add-on. Choose a main course first; you can add it afterward."
+            conversation.add_message("assistant", msg)
+            return IntentResponse(False, msg, state, conversation)
+
         ctx = state.booking_context
-        ctx.course_id = course.courseId
-        ctx.course_name = course.courseName
-        ctx.course_duration_options = [item.duration for item in course.durations] or (
-            [course.duration] if course.duration is not None else []
-        )
+        self._set_primary_course(state, course, catalog, message)
         slots = _slots_from_message(message)
         for key in ("date", "start_time", "duration", "number_of_people"):
             if key in slots:
@@ -851,6 +938,10 @@ class ChatEndpoint:
 
         ctx = state.booking_context
         slots = _slots_from_message(message)
+        if ctx.duration is not None and not ctx.selected_course_options and ctx.catalog_courses:
+            price_match = re.search(r"\b([\d,]+)\s*(?:vnd|đ)\b", message.casefold())
+            if price_match:
+                ctx.primary_price = int(price_match.group(1).replace(',', ''))
         expected = (
             "duration" if ctx.duration is None else
             "date" if not ctx.date else
@@ -896,6 +987,8 @@ class ChatEndpoint:
         )
 
     def _selected_course_durations(self, state: ConversationState) -> list[int]:
+        if len(state.booking_context.selected_course_options) > 1:
+            return [sum(item['duration'] for item in state.booking_context.selected_course_options)]
         if state.booking_context.course_duration_options:
             return state.booking_context.course_duration_options
         try:
@@ -1109,6 +1202,12 @@ class ChatEndpoint:
         self, state: ConversationState, conversation: Conversation
     ) -> IntentResponse:
         ctx = state.booking_context
+        selections = ctx.selected_course_options or [{
+            'courseId': ctx.course_id, 'courseName': ctx.course_name,
+            'courseType': 'main', 'duration': ctx.duration, 'price': None,
+        }]
+        main = [item for item in selections if item['courseType'] == 'main']
+        addons = [item for item in selections if item['courseType'] == 'addon']
         request = CreateBookingRequest(
             shopId=ctx.shop_id,
             phoneNumber=ctx.phone_number,
@@ -1117,9 +1216,19 @@ class ChatEndpoint:
             duration=ctx.duration,
             numberOfPeople=ctx.number_of_people,
             services=[
-                {"personIndex": index, "courseId": ctx.course_id}
+                {"personIndex": index, "courseId": item['courseId']}
                 for index in range(1, ctx.number_of_people + 1)
+                for item in main
             ],
+            addOns=[
+                {"personIndex": index, "courseId": item['courseId']}
+                for index in range(1, ctx.number_of_people + 1)
+                for item in addons
+            ],
+            selectedCourses=[
+                {'courseId': item['courseId'], 'duration': item['duration'], 'price': item['price']}
+                for item in selections if item.get('price') is not None
+            ] or None,
         )
         state.pending_action = PendingAction(
             tool_name="createBooking", arguments=request.model_dump(mode="json")
@@ -1129,10 +1238,13 @@ class ChatEndpoint:
             return IntentResponse(
                 False, state.error_message or "Invalid state", state, conversation
             )
+        selection_summary = ", ".join(f"{item['courseName']} {item['duration']} min" for item in selections)
+        price_summary = sum(item['price'] or 0 for item in selections) * ctx.number_of_people
         msg = (
-            f"Please confirm booking: {ctx.course_name} at {ctx.shop_name} on {ctx.date} "
+            f"Please confirm booking: {selection_summary} at {ctx.shop_name} on {ctx.date} "
             f"at {ctx.start_time} for {ctx.number_of_people} people, {ctx.duration} minutes, "
-            f"phone {ctx.phone_number}. Shall I book it?"
+            + (f"total {price_summary:,} VND, " if all(item.get('price') is not None for item in selections) else "")
+            + f"phone {ctx.phone_number}. Shall I book it?"
         )
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation)
@@ -1248,7 +1360,23 @@ class ChatEndpoint:
         options = self._selected_course_durations(state)
         if ctx.duration is not None and options and ctx.duration not in options:
             ctx.duration = None
+            ctx.selected_course_options = []
             invalid_duration = True
+        if ctx.duration is not None and not ctx.selected_course_options and ctx.catalog_courses:
+            primary = next((CourseInfo.model_validate(item) for item in ctx.catalog_courses
+                            if item.get('courseId') == ctx.course_id), None)
+            if primary:
+                choices = [item for item in _valid_course_options(primary) if item.duration == ctx.duration
+                           and (ctx.primary_price is None or item.price == ctx.primary_price)]
+                if len(choices) != 1:
+                    labels = ", ".join(f"{item.duration} min at {item.price:,} VND" for item in _valid_course_options(primary))
+                    msg = f"Choose an exact option for {primary.courseName}: {labels}."
+                    conversation.add_message("assistant", msg)
+                    return IntentResponse(False, msg, state, conversation)
+                ctx.selected_course_options = [{
+                    'courseId': primary.courseId, 'courseName': primary.courseName,
+                    'courseType': 'main', 'duration': choices[0].duration, 'price': choices[0].price,
+                }]
         if ctx.duration is None:
             choices = ", ".join(str(value) for value in options)
             msg = (
@@ -1504,42 +1632,39 @@ class ChatEndpoint:
             msg = "I couldn't check services right now. Your booking details are saved; please try again."
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
-        state.last_tool_result = result.model_dump(mode="json")
         metrics.incr("tools_executed_total", labels={"tool": "searchCourses"})
         if not result.success:
             msg = f"Sorry, I couldn't fetch the courses. {result.message}"
             conversation.add_message("assistant", msg)
             return IntentResponse(False, msg, state, conversation)
-        courses = result.data or []
-        if not courses:
-            msg = f"{intro}No services are available at that shop right now."
+        courses = [course for course in result.data or [] if course.courseType in {'main', 'addon'}
+                   and course.status not in {'inactive', 'Inactive'} and _valid_course_options(course)]
+        state.last_tool_result = SearchCoursesResponse(success=True, data=courses, message=result.message).model_dump(mode="json")
+        state.booking_context.catalog_courses = [course.model_dump(mode="json") for course in courses]
+        if not any(course.courseType == 'main' for course in courses):
+            msg = f"{intro}No main courses are bookable at that shop right now."
             conversation.add_message("assistant", msg)
             return IntentResponse(True, msg, state, conversation)
         if selection_message:
             selected, _ = _course_selection(selection_message, courses)
-            if selected is not None:
+            if selected is not None and selected.courseType == 'main':
                 ctx = state.booking_context
-                ctx.course_id = selected.courseId
-                ctx.course_name = selected.courseName
-                ctx.course_duration_options = [item.duration for item in selected.durations] or (
-                    [selected.duration] if selected.duration is not None else []
-                )
+                self._set_primary_course(state, selected, courses, selection_message)
                 state, ok = self._conversation_manager.transition(state, "choose_course")
                 if not ok:
                     return IntentResponse(False, state.error_message or "Invalid state", state, conversation)
                 return await self._advance_booking_details(state, conversation)
         def course_label(course: Any) -> str:
-            durations = course.durations or (
-                [course] if course.duration is not None and course.price is not None else []
-            )
+            durations = _valid_course_options(course)
             options = ", ".join(
                 f"{option.duration}min, {option.price:,}đ" for option in durations
             )
             details = f", {options}" if options else ""
-            return f"- {course.courseName} (id: {course.courseId}{details})"
+            kind = "main course" if course.courseType == 'main' else "optional add-on"
+            return f"- {course.courseName} ({kind}, id: {course.courseId}{details})"
 
         body = "\n".join(course_label(course) for course in courses)
-        msg = f"{intro}Here are the services:\n{body}\nWhich one would you like?"
+        msg = f"{intro}Here are the services:\n{body}\nWhich one would you like? Choose a main course first; you can add other courses or add-ons afterward."
         conversation.add_message("assistant", msg)
         return IntentResponse(True, msg, state, conversation, data={"courses": [c.model_dump() for c in courses]})
 

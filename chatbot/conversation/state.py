@@ -41,6 +41,9 @@ class BookingContext(BaseModel):
     course_name: str | None = None
     course_duration_options: list[int] = Field(default_factory=list)
     addon_ids: list[int] = Field(default_factory=list)
+    catalog_courses: list[dict[str, Any]] = Field(default_factory=list)
+    selected_course_options: list[dict[str, Any]] = Field(default_factory=list)
+    primary_price: int | None = None
     date: str | None = None
     start_time: str | None = None
     time_preference: str | None = None

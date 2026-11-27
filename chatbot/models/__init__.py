@@ -204,6 +204,12 @@ class CreateBookingAddOn(BaseModel):
     courseId: int
 
 
+class SelectedCourseOption(BaseModel):
+    courseId: int
+    duration: int = Field(ge=1)
+    price: int = Field(ge=0)
+
+
 class CreateBookingRequest(BaseModel):
     shopId: int
     phoneNumber: str
@@ -213,8 +219,9 @@ class CreateBookingRequest(BaseModel):
     numberOfPeople: int
     services: list[CreateBookingService]
     addOns: list[CreateBookingAddOn] | None = None
-    therapistId: int | None = None
-    therapistGender: str | None = Field(default=None, pattern="^(Male|Female)$")
+    selectedCourses: list[SelectedCourseOption] | None = None
+    therapistPreferenceType: str | None = Field(default=None, pattern="^(no_preference|specific|gender)$")
+    therapistPreferenceValue: int | str | None = None
 
 
 class CreateBookingResponse(BaseModel):

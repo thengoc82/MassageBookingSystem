@@ -3,7 +3,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import type { Shop } from '@/types';
+import { bookableDurations } from '@/lib/course-options';
+import type { Course, Shop } from '@/types';
 import TherapistGantt from '@/components/TherapistGantt';
 
 interface RecentBooking {
@@ -36,16 +37,40 @@ export default function DashboardPage() {
   const [calMonth, setCalMonth] = useState(date.getMonth());
   const [calYear, setCalYear] = useState(date.getFullYear());
   const [recentBookings] = useState<RecentBooking[]>(() => readRecent());
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState(0);
+  const [durationOptions, setDurationOptions] = useState<number[]>([]);
+  const [catalogError, setCatalogError] = useState('');
   const [people, setPeople] = useState(1);
 
   useEffect(() => {
     api.shops.getAll().then(d => {
       const list = Array.isArray(d) ? d : d.data || [];
       setShops(list);
-      if (list.length > 0) setShopId(prev => prev ?? list[0].shopId);
+      const requestedId = Number(new URLSearchParams(window.location.search).get('shopId'));
+      if (list.length > 0) setShopId(prev => prev ?? (list.some((shop: Shop) => shop.shopId === requestedId) ? requestedId : list[0].shopId));
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!shopId) return;
+    let active = true;
+    setDurationOptions([]);
+    setDuration(0);
+    setCatalogError('');
+    api.shops.getCourses(shopId).then(result => {
+      if (!active) return;
+      const shop = shops.find(item => item.shopId === shopId);
+      if (!shop) return;
+      const minutes = (value: string) => {
+        const [hours, mins] = value.split(':').map(Number);
+        return hours * 60 + mins;
+      };
+      const options = bookableDurations((result.data || result) as Course[], minutes(shop.closeTime) - minutes(shop.openTime));
+      setDurationOptions(options);
+      setDuration(current => options.includes(current) ? current : (options.includes(60) ? 60 : options[0] || 0));
+    }).catch(() => { if (active) setCatalogError('Could not load bookable durations for this shop.'); });
+    return () => { active = false; };
+  }, [shopId, shops]);
 
   const prevDay = useCallback(() => { setDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; }); setShowCal(false); }, []);
   const nextDay = useCallback(() => { setDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }); setShowCal(false); }, []);
@@ -120,8 +145,10 @@ export default function DashboardPage() {
           <div className="w-px h-5 bg-gray-300" />
           <select value={duration} onChange={e => setDuration(Number(e.target.value))}
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
-            {[15, 30, 45, 60, 75, 90].map(d => <option key={d} value={d}>{d} min</option>)}
+            {durationOptions.map(d => <option key={d} value={d}>{d} min</option>)}
           </select>
+          {catalogError && <span role="alert" className="text-xs text-red-700">{catalogError}</span>}
+          {!catalogError && shopId && durationOptions.length === 0 && <span className="text-xs text-gray-500">No bookable durations available</span>}
           <select value={people} onChange={e => setPeople(Number(e.target.value))}
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
             {[1, 2, 3].map(n => <option key={n} value={n}>{n} {n > 1 ? 'people' : 'person'}</option>)}
@@ -138,7 +165,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex-1 min-h-0">
-        {shopId ? (
+        {shopId && duration > 0 ? (
           <TherapistGantt
             shopId={shopId}
             date={dateStr}
@@ -147,7 +174,7 @@ export default function DashboardPage() {
             onSelectSlot={handleSlotClick}
           />
         ) : (
-          <div className="text-center py-8 text-gray-500">Loading shop...</div>
+          <div className="text-center py-8 text-gray-500">Select a shop with bookable services.</div>
         )}
       </div>
     </div>

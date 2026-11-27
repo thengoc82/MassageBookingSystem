@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
-import type { Course, Shop, TimeSlot } from '@/types';
+import { bookableCourses, bookableOptions } from '@/lib/course-options';
+import type { Course, CourseDuration, Shop, TimeSlot } from '@/types';
 
 export interface BookingContext {
   shopId: number;
@@ -13,7 +14,7 @@ export interface BookingContext {
   therapistId?: number;
 }
 
-type Selection = Record<number, number>;
+type Selection = Record<number, CourseDuration>;
 
 function formatPrice(price: number) {
   return `${price.toLocaleString('en-US')} VND`;
@@ -59,9 +60,7 @@ export default function BookingForm({ context, onConfirmed }: {
       .then(([shopResult, courseResult]) => {
         if (!active) return;
         setShop((shopResult.data || shopResult) as Shop);
-        setCourses(responseData<Course>(courseResult).filter(course =>
-          course.courseType === 'main' && course.status !== 'inactive' &&
-          course.durations?.some(option => option.duration > 0 && Number.isFinite(option.price))));
+        setCourses(bookableCourses(responseData<Course>(courseResult)));
         setLoadError('');
       })
       .catch(() => { if (active) setLoadError('Could not load this shop’s courses. Refresh the page to try again.'); })
@@ -70,23 +69,27 @@ export default function BookingForm({ context, onConfirmed }: {
   }, [shopId]);
 
   const chosen = useMemo(() => courses.flatMap(course => {
-    const option = course.durations.find(item => item.duration === selected[course.courseId]);
+    const choice = selected[course.courseId];
+    const option = bookableOptions(course).find(item =>
+      item.duration === choice?.duration && item.price === choice?.price);
     return option ? [{ course, duration: option.duration, price: option.price }] : [];
   }), [courses, selected]);
+  const chosenMain = chosen.filter(item => item.course.courseType === 'main');
+  const chosenAddons = chosen.filter(item => item.course.courseType === 'addon');
   const totalDuration = chosen.reduce((total, item) => total + item.duration, 0);
   const remaining = (context?.duration || 0) - totalDuration;
   const pricePerGuest = chosen.reduce((total, item) => total + item.price, 0);
   const totalPrice = pricePerGuest * (context?.numberOfPeople || 0);
   const phoneValid = /^[+\d][\d\s().-]{7,19}$/.test(phone.trim()) && phone.replace(/\D/g, '').length >= 9;
   const specificTherapistId = context?.numberOfPeople === 1 ? context.therapistId : undefined;
-  const ready = validContext(context) && !!shop?.shopName && !loading && !loadError &&
-    chosen.length > 0 && remaining === 0 && phoneValid;
+  const ready = validContext(context) && !!shop?.shopName && shop.status === 'Open' && !loading && !loadError &&
+    chosenMain.length > 0 && remaining === 0 && phoneValid;
 
-  function choose(courseId: number, duration: number) {
+  function choose(courseId: number, option: CourseDuration) {
     setSelected(current => {
       const next = { ...current };
-      if (next[courseId] === duration) delete next[courseId];
-      else next[courseId] = duration;
+      if (next[courseId]?.duration === option.duration && next[courseId]?.price === option.price) delete next[courseId];
+      else next[courseId] = option;
       return next;
     });
     setError('');
@@ -115,7 +118,9 @@ export default function BookingForm({ context, onConfirmed }: {
       }
 
       const services = Array.from({ length: context.numberOfPeople }, (_, index) =>
-        chosen.map(item => ({ personIndex: index + 1, courseId: item.course.courseId }))).flat();
+        chosenMain.map(item => ({ personIndex: index + 1, courseId: item.course.courseId }))).flat();
+      const addOns = Array.from({ length: context.numberOfPeople }, (_, index) =>
+        chosenAddons.map(item => ({ personIndex: index + 1, courseId: item.course.courseId }))).flat();
       const result = await api.bookings.create({
         phoneNumber: phone.trim(),
         shopId: context.shopId,
@@ -123,9 +128,9 @@ export default function BookingForm({ context, onConfirmed }: {
         startTime: context.startTime,
         duration: context.duration,
         numberOfPeople: context.numberOfPeople,
-        courseId: chosen[0].course.courseId,
+        courseId: chosenMain[0].course.courseId,
         services,
-        addOns: [],
+        addOns,
         selectedCourses: chosen.map(item => ({ courseId: item.course.courseId, duration: item.duration, price: item.price })),
         notes: notes.trim() || undefined,
         ...(specificTherapistId ? {
@@ -185,17 +190,18 @@ export default function BookingForm({ context, onConfirmed }: {
         </div>
         <p className="mt-1 text-sm text-ink-soft">Choose one duration per course. Your choices apply to each guest.</p>
         {loading && contextValid && <p className="mt-4 text-sm text-ink-soft">Loading courses...</p>}
-        {!loading && !loadError && courses.length === 0 && <p className="mt-4 text-sm text-red-700">No courses are available at this shop.</p>}
+        {!loading && !loadError && !courses.some(course => course.courseType === 'main') && <p className="mt-4 text-sm text-red-700">No main courses are available at this shop.</p>}
         {loadError && <p role="alert" className="mt-4 text-sm text-red-700">{loadError}</p>}
         <div className="mt-5 space-y-4">
           {courses.map(course => <div key={course.courseId} className="rounded-xl border border-line p-4">
             <h3 className="font-semibold text-basalt">{course.courseName}</h3>
+            <p className="text-xs text-ink-soft">{course.courseType === 'addon' ? 'Optional add-on' : 'Main course'}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {course.durations.filter(option => option.duration > 0 && Number.isFinite(option.price)).map(option => {
-                const active = selected[course.courseId] === option.duration;
-                return <button key={option.duration} type="button" aria-pressed={active}
+              {bookableOptions(course).map(option => {
+                const active = selected[course.courseId]?.duration === option.duration && selected[course.courseId]?.price === option.price;
+                return <button key={`${option.duration}-${option.price}`} type="button" aria-pressed={active}
                   aria-label={`${course.courseName}, ${option.duration} minutes, ${formatPrice(option.price)}`}
-                  onClick={() => choose(course.courseId, option.duration)}
+                  onClick={() => choose(course.courseId, option)}
                   className={`min-w-32 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${active
                     ? 'border-celadon bg-celadon-soft text-basalt shadow-sm'
                     : 'border-line bg-white text-basalt hover:border-celadon'}`}>
@@ -211,7 +217,7 @@ export default function BookingForm({ context, onConfirmed }: {
           <div className="mt-1 flex flex-wrap justify-between gap-2"><span>Remaining duration</span><strong className={remaining < 0 ? 'text-red-700' : 'text-celadon-deep'}>{remaining} min</strong></div>
           <div className="mt-2 flex flex-wrap justify-between gap-2 border-t border-line pt-2"><span>Total price{context && context.numberOfPeople > 1 ? ` for ${context.numberOfPeople} guests` : ''}</span><strong>{formatPrice(totalPrice)}</strong></div>
         </div>
-        {chosen.length === 0 ? <p className="mt-3 text-sm text-red-700">Select at least one course.</p>
+        {chosenMain.length === 0 ? <p className="mt-3 text-sm text-red-700">Select at least one main course.</p>
           : remaining !== 0 ? <p className="mt-3 text-sm text-red-700">{remaining > 0 ? `Select ${remaining} more minutes to match your reserved duration.` : `Remove ${Math.abs(remaining)} minutes to match your reserved duration.`}</p>
           : <p className="mt-3 text-sm text-celadon-deep">Your courses fill the reserved duration exactly.</p>}
       </section>

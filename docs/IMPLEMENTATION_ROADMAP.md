@@ -82,7 +82,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** Admin JWT protected list, detail, create, update, and soft-remove routes use the existing `CustomerRestriction` model. Active records determine managed blocks; `Customer.is_blocked` is synchronized for existing customer displays and remains an eligibility fallback until a data-only migration converts legacy flag-only blocks. The admin customers page manages active entries and history. Booking creation checks eligibility under the customer lock and still rejects blocked customers with `CUSTOMER_BLOCKED`. See [Task 6 record](progress/task-06.md). No schema change was needed.
 
-### 7. Complete service discovery and booking options — planned
+### 7. Complete service discovery and booking options — completed
 
 **Depends on:** Task 1's multi-main/add-on and catalog-option rules; Task 6 is independent but remains earlier in the ordered checklist.
 
@@ -91,6 +91,8 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** The chosen main courses and add-ons must total the reserved duration and use active catalog prices. The UI currently filters out add-ons, although the API returns them.
 
 **Verify:** Choose main course(s) plus an add-on, display the correct per-guest and group totals, submit one valid booking, and inspect persisted per-person services and add-ons.
+
+**Implementation:** Public courses now expose only active options accepted by booking creation at open shops, with an explicit `main`/`addon` filter. `/shops` shows the catalog and links to the selected shop's slot schedule. The dashboard offers catalog-backed durations; BookingForm selects main courses and add-ons, computes per-guest and group totals, and submits each selected option and per-guest course row. The chatbot retrieves the Flask catalog, separates main courses from add-ons, and carries selected options through confirmation. See [Task 7 record](progress/task-07.md). No database migration was needed. Service descriptions are absent from the source catalog and were not invented.
 
 ### 8. Complete customer slot choices and recovery — planned
 
@@ -116,7 +118,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Depends on:** Tasks 1, 3, 4, and 8; chatbot writes must use the same validated contract and access rules as the web flow.
 
-**Work:** Update [CreateBookingRequest](../chatbot/models/__init__.py), [confirmation payload construction](../chatbot/app/chat_endpoint.py), and [write tools](../chatbot/tools/write_tools.py) to send Flask's `therapistPreferenceType`/`therapistPreferenceValue` fields and accepted course selections. The current chat path builds one course per guest and still models `therapistId`/`therapistGender`. Reuse pending-action confirmation and slot recovery; align modify/cancel tools with Task 4's access rule.
+**Work:** Task 7 now carries accepted course selections, including multiple main courses and add-ons, through confirmation. Complete therapist preference selection and its Flask `therapistPreferenceType`/`therapistPreferenceValue` payload; reuse pending-action confirmation and slot recovery, and verify modify/cancel behavior against Task 4's access rule.
 
 **Risk:** Existing chatbot tests and schemas encode the older request model. Course duration options and guest count must survive confirmation without silently dropping the user's choices.
 
