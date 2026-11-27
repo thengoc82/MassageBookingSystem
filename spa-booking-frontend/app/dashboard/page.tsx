@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { bookableDurations } from '@/lib/course-options';
+import { localDateStr } from '@/lib/dates';
 import type { Course, Shop } from '@/types';
 import TherapistGantt from '@/components/TherapistGantt';
 
@@ -41,15 +42,19 @@ export default function DashboardPage() {
   const [durationOptions, setDurationOptions] = useState<number[]>([]);
   const [catalogError, setCatalogError] = useState('');
   const [people, setPeople] = useState(1);
+  const [preference, setPreference] = useState<'any' | 'Female' | 'Male' | 'specific'>('any');
+  const [shopError, setShopError] = useState('');
+  const [shopReloadKey, setShopReloadKey] = useState(0);
 
   useEffect(() => {
     api.shops.getAll().then(d => {
       const list = Array.isArray(d) ? d : d.data || [];
       setShops(list);
+      setShopError('');
       const requestedId = Number(new URLSearchParams(window.location.search).get('shopId'));
       if (list.length > 0) setShopId(prev => prev ?? (list.some((shop: Shop) => shop.shopId === requestedId) ? requestedId : list[0].shopId));
-    }).catch(() => {});
-  }, []);
+    }).catch(() => setShopError('Could not load shops.'));
+  }, [shopReloadKey]);
 
   useEffect(() => {
     if (!shopId) return;
@@ -72,11 +77,11 @@ export default function DashboardPage() {
     return () => { active = false; };
   }, [shopId, shops]);
 
-  const prevDay = useCallback(() => { setDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; }); setShowCal(false); }, []);
+  const prevDay = useCallback(() => { setDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return localDateStr(n) < localDateStr() ? d : n; }); setShowCal(false); }, []);
   const nextDay = useCallback(() => { setDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }); setShowCal(false); }, []);
 
   const handleSlotClick = useCallback((time: string, therapistId: number) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = localDateStr(date);
     const params = new URLSearchParams({
       shopId: String(shopId),
       date: dateStr,
@@ -84,9 +89,10 @@ export default function DashboardPage() {
       duration: String(duration),
       people: String(people),
     });
-    if (therapistId) params.set('therapistId', String(therapistId));
+    if (preference === 'specific' && therapistId) params.set('therapistId', String(therapistId));
+    if (people === 1 && (preference === 'Female' || preference === 'Male')) params.set('therapistGender', preference);
     router.push(`/reservation?${params.toString()}`);
-  }, [date, duration, people, shopId, router]);
+  }, [date, duration, people, preference, shopId, router]);
 
   const calDays = useCallback(() => {
     const dim = daysInMonth(calYear, calMonth);
@@ -96,17 +102,18 @@ export default function DashboardPage() {
     return cells;
   }, [calMonth, calYear]);
 
-  const todayStr = `${new Date().getFullYear()}-${new Date().getMonth()}-${new Date().getDate()}`;
-  const dateStr = date.toISOString().split('T')[0];
+  const todayStr = localDateStr();
+  const dateStr = localDateStr(date);
 
   return (
     <div className="h-screen bg-[#F5F7FA] flex flex-col overflow-hidden">
       <div className="bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center px-4 py-2 gap-4">
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={prevDay} className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 text-sm text-gray-700">&larr;</button>
+            <button onClick={prevDay} disabled={dateStr <= todayStr} className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 text-sm text-gray-700 disabled:opacity-40">&larr;</button>
             <div className="relative">
               <button onClick={() => setShowCal(p => !p)}
+                aria-label="Choose booking date"
                 className="text-sm font-semibold text-gray-900 whitespace-nowrap min-w-[240px] text-center px-2 py-1 rounded hover:bg-gray-100">
                 {fmtDate(date)}
               </button>
@@ -125,10 +132,11 @@ export default function DashboardPage() {
                   <div className="grid grid-cols-7 gap-0 text-center text-[10px]">
                     {calDays().map((day, i) => {
                       const sel = day === date.getDate() && calMonth === date.getMonth() && calYear === date.getFullYear();
+                      const cellDate = day ? localDateStr(new Date(calYear, calMonth, day)) : '';
                       return (
-                        <button key={i} onClick={() => { if (day) { setDate(new Date(calYear, calMonth, day)); setShowCal(false); } }}
-                          className={`py-1 rounded ${day ? (sel ? 'bg-[#1F2B2A] text-white' : day && `${calYear}-${calMonth}-${day}` === todayStr ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-100') : ''}`}
-                          disabled={!day}>{day || ''}</button>
+                        <button key={i} onClick={() => { if (day && cellDate >= todayStr) { setDate(new Date(calYear, calMonth, day)); setShowCal(false); } }}
+                          className={`py-1 rounded ${day ? (sel ? 'bg-[#1F2B2A] text-white' : cellDate === todayStr ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-700 hover:bg-gray-100') : ''}`}
+                          disabled={!day || cellDate < todayStr}>{day || ''}</button>
                       );
                     })}
                   </div>
@@ -138,21 +146,27 @@ export default function DashboardPage() {
             <button onClick={nextDay} className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-100 text-sm text-gray-700">&rarr;</button>
           </div>
           <div className="w-px h-5 bg-gray-300" />
-          <select value={shopId ?? ''} onChange={e => setShopId(Number(e.target.value))}
+          <select aria-label="Shop" value={shopId ?? ''} onChange={e => setShopId(Number(e.target.value))}
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
             {shops.map(s => <option key={s.shopId} value={s.shopId}>{s.shopName}</option>)}
           </select>
           <div className="w-px h-5 bg-gray-300" />
-          <select value={duration} onChange={e => setDuration(Number(e.target.value))}
+          <select aria-label="Duration" value={duration} onChange={e => setDuration(Number(e.target.value))}
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
             {durationOptions.map(d => <option key={d} value={d}>{d} min</option>)}
           </select>
           {catalogError && <span role="alert" className="text-xs text-red-700">{catalogError}</span>}
           {!catalogError && shopId && durationOptions.length === 0 && <span className="text-xs text-gray-500">No bookable durations available</span>}
-          <select value={people} onChange={e => setPeople(Number(e.target.value))}
+          <select aria-label="Guests" value={people} onChange={e => setPeople(Number(e.target.value))}
             className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
             {[1, 2, 3].map(n => <option key={n} value={n}>{n} {n > 1 ? 'people' : 'person'}</option>)}
           </select>
+          {people === 1 && <select aria-label="Therapist preference" value={preference} onChange={e => setPreference(e.target.value as typeof preference)}
+            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 cursor-pointer">
+            <option value="any">Any therapist</option><option value="Female">Female therapist</option>
+            <option value="Male">Male therapist</option><option value="specific">Choose a therapist</option>
+          </select>}
+          {shopError && <span role="alert" className="text-xs text-red-700">{shopError} <button type="button" onClick={() => setShopReloadKey(value => value + 1)} className="underline">Try again</button></span>}
         </div>
       </div>
 
@@ -161,7 +175,7 @@ export default function DashboardPage() {
       <div className="flex items-center gap-4 px-4 py-1 bg-white border-b border-gray-200 text-[11px] text-gray-700 shrink-0">
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-100 border border-green-300" /> Available</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-white border border-gray-300" /> Unavailable</span>
-        <span className="ml-auto text-gray-500">Click a green cell to book</span>
+        <span className="ml-auto text-gray-500">{people === 1 && preference === 'specific' ? 'Click a therapist’s green cell to book' : 'Click a green time to book'}</span>
       </div>
 
       <div className="flex-1 min-h-0">
@@ -171,6 +185,8 @@ export default function DashboardPage() {
             date={dateStr}
             duration={duration}
             numberOfPeople={people}
+            gender={people === 1 && (preference === 'Female' || preference === 'Male') ? preference : undefined}
+            selectionMode={people > 1 || preference !== 'specific' ? 'capacity' : 'therapist'}
             onSelectSlot={handleSlotClick}
           />
         ) : (

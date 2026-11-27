@@ -13,13 +13,15 @@ function ReservationForm() {
     duration: Number(params.get('duration')),
     numberOfPeople: Number(params.get('people')),
     therapistId: Number(params.get('people')) === 1 && params.get('therapistId') ? Number(params.get('therapistId')) : undefined,
+    therapistGender: Number(params.get('people')) === 1 && ['Male', 'Female'].includes(params.get('therapistGender') || '')
+      ? params.get('therapistGender') as 'Male' | 'Female' : undefined,
   };
 
-  function rememberBooking() {
+  function rememberBooking(startTime: string) {
     try {
       const recent = JSON.parse(localStorage.getItem('recentBookings') || '[]');
       if (!Array.isArray(recent)) return;
-      recent.push({ shopId: context.shopId, date: context.bookingDate, startTime: context.startTime, duration: context.duration });
+      recent.push({ shopId: context.shopId, date: context.bookingDate, startTime, duration: context.duration });
       localStorage.setItem('recentBookings', JSON.stringify(recent.slice(-20)));
     } catch { /* Recent bookings are optional. */ }
   }

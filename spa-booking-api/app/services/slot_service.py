@@ -12,11 +12,31 @@ class SlotService:
 
     @staticmethod
     def get_available_slots(shop_id, date, duration, number_of_people, start_time=None, course_ids=None, gender=None, show_therapists=False, include_booking_details=False):
+        if type(duration) is not int or duration <= 0:
+            raise ValidationError('duration must be a positive integer')
+        if type(number_of_people) is not int or number_of_people <= 0:
+            raise ValidationError('numberOfPeople must be a positive integer')
+        if gender is not None and gender not in ('Male', 'Female'):
+            raise ValidationError('gender must be Male or Female')
+        if gender and number_of_people != 1:
+            raise ValidationError('gender is only available for one guest')
+        try:
+            date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+            if date_obj.isoformat() != date:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise ValidationError('date must be YYYY-MM-DD')
+        if start_time is not None:
+            try:
+                start_time_obj = datetime.strptime(start_time, '%H:%M').time()
+                if start_time_obj.strftime('%H:%M') != start_time:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                raise ValidationError('startTime must be HH:MM')
+
         shop = Shop.query.get(shop_id)
         if not shop:
             raise ResourceNotFound('Shop')
-
-        date_obj = datetime.strptime(date, '%Y-%m-%d').date()
 
         if date_obj < datetime.utcnow().date():
             raise ValidationError('Date cannot be in the past')
@@ -26,6 +46,8 @@ class SlotService:
             all_therapists = Therapist.query.filter_by(
                 shop_id=shop_id, status='active'
             ).all()
+            if gender:
+                all_therapists = [t for t in all_therapists if t.gender == gender]
             therapist_list = [{
                 'therapistId': t.id,
                 'name': t.name,
@@ -38,11 +60,13 @@ class SlotService:
         close_time = datetime.combine(date_obj, shop.close_time)
 
         current_time = open_time
-        if start_time:
-            start_time_obj = datetime.strptime(start_time, '%H:%M').time()
-            current_time = datetime.combine(date_obj, start_time_obj)
+        if start_time is not None:
+            requested_time = datetime.combine(date_obj, start_time_obj)
+            minutes_after_open = max(0, int((requested_time - open_time).total_seconds() // 60))
+            steps = (minutes_after_open + SlotService.SLOT_INTERVAL - 1) // SlotService.SLOT_INTERVAL
+            current_time = open_time + timedelta(minutes=steps * SlotService.SLOT_INTERVAL)
 
-        while current_time + timedelta(minutes=duration) <= close_time:
+        while shop.status == 'Open' and current_time + timedelta(minutes=duration) <= close_time:
             end_time = current_time + timedelta(minutes=duration)
             st = current_time.time()
             et = end_time.time()
@@ -50,6 +74,8 @@ class SlotService:
             available_therapists = TherapistService.find_available_therapists(
                 shop_id, date_obj, st, et
             )
+            if gender:
+                available_therapists = [t for t in available_therapists if t.gender == gender]
             available_capacity = len(available_therapists)
 
             slot = {

@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-11-26
+Updated: 2026-11-27
 
 This file tracks the implementation checklist for the AI massage booking specification. Existing project features outside these tasks are not marked complete by this checklist.
 
@@ -13,6 +13,7 @@ This file tracks the implementation checklist for the AI massage booking specifi
 | 05 — Weekly therapist shift management | **Completed** | [Task 05 record](progress/task-05.md); Flask API suite: 63 passed; frontend Jest suite: 25 passed; TypeScript type check passed. |
 | 06 — NG List management | **Completed** | [Task 06 record](progress/task-06.md); Flask API suite: 70 passed; frontend Jest suite: 30 passed; TypeScript type check passed. |
 | 07 — Service discovery and booking options | **Completed** | [Task 07 record](progress/task-07.md); Flask API suite: 73 passed; frontend Jest suite: 34 passed; TypeScript check and 134 focused chatbot tests passed. |
+| 08 — Slot choices and recovery | **Completed** | [Task 08 record](progress/task-08.md); Flask API suite: 83 passed; frontend Jest suite: 44 passed; TypeScript check and two Chromium booking-flow tests passed. |
 
 ## Task 2 implementation and scope
 

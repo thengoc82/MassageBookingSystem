@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
 import { bookableCourses, bookableOptions } from '@/lib/course-options';
+import { localDateStr, timeToMin } from '@/lib/dates';
 import type { Course, CourseDuration, Shop, TimeSlot } from '@/types';
 
 export interface BookingContext {
@@ -12,6 +13,7 @@ export interface BookingContext {
   duration: number;
   numberOfPeople: number;
   therapistId?: number;
+  therapistGender?: 'Male' | 'Female';
 }
 
 type Selection = Record<number, CourseDuration>;
@@ -29,17 +31,29 @@ function validContext(value: BookingContext | null): value is BookingContext {
     /^([01]\d|2[0-3]):[0-5]\d$/.test(value.startTime) &&
     Number.isInteger(value.duration) && value.duration > 0 &&
     Number.isInteger(value.numberOfPeople) && value.numberOfPeople > 0 &&
-    (value.therapistId === undefined || (Number.isInteger(value.therapistId) && value.therapistId > 0));
+    (value.therapistId === undefined || (Number.isInteger(value.therapistId) && value.therapistId > 0)) &&
+    (value.therapistGender === undefined || ['Male', 'Female'].includes(value.therapistGender)) &&
+    !(value.therapistId && value.therapistGender) &&
+    (value.numberOfPeople === 1 || (!value.therapistId && !value.therapistGender));
 }
 
 function responseData<T>(response: T[] | { data?: T[] }): T[] {
   return Array.isArray(response) ? response : response.data || [];
 }
 
-export default function BookingForm({ context, onConfirmed }: {
+interface BookingFormProps {
   context: BookingContext | null;
-  onConfirmed?: () => void;
-}) {
+  onConfirmed?: (startTime: string) => void;
+}
+
+export default function BookingForm(props: BookingFormProps) {
+  const context = props.context;
+  const key = context ? [context.shopId, context.bookingDate, context.startTime,
+    context.duration, context.numberOfPeople, context.therapistId, context.therapistGender].join(':') : 'missing';
+  return <BookingFormContent key={key} {...props} />;
+}
+
+function BookingFormContent({ context, onConfirmed }: BookingFormProps) {
   const [shop, setShop] = useState<Shop | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,8 +63,12 @@ export default function BookingForm({ context, onConfirmed }: {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [bookingTime, setBookingTime] = useState(context?.startTime || '');
+  const [alternatives, setAlternatives] = useState<TimeSlot[]>([]);
+  const [recoveryState, setRecoveryState] = useState<'none' | 'loading' | 'ready' | 'empty' | 'error'>('none');
   const [confirmation, setConfirmation] = useState<{ code: string; therapist?: string } | null>(null);
   const submittingRef = useRef(false);
+  const recoveryRequest = useRef(0);
 
   const shopId = context?.shopId;
   useEffect(() => {
@@ -82,8 +100,50 @@ export default function BookingForm({ context, onConfirmed }: {
   const totalPrice = pricePerGuest * (context?.numberOfPeople || 0);
   const phoneValid = /^[+\d][\d\s().-]{7,19}$/.test(phone.trim()) && phone.replace(/\D/g, '').length >= 9;
   const specificTherapistId = context?.numberOfPeople === 1 ? context.therapistId : undefined;
+  const therapistGender = context?.numberOfPeople === 1 && !specificTherapistId ? context.therapistGender : undefined;
   const ready = validContext(context) && !!shop?.shopName && shop.status === 'Open' && !loading && !loadError &&
-    chosenMain.length > 0 && remaining === 0 && phoneValid;
+    chosenMain.length > 0 && remaining === 0 && phoneValid && /^([01]\d|2[0-3]):[0-5]\d$/.test(bookingTime);
+
+  function slotQuery(booking: BookingContext) {
+    return {
+      date: booking.bookingDate,
+      duration: booking.duration,
+      numberOfPeople: booking.numberOfPeople,
+      ...(specificTherapistId ? { show_therapists: true } : {}),
+      ...(therapistGender ? { gender: therapistGender } : {}),
+    };
+  }
+
+  function matchesChoice(slot: TimeSlot, booking: BookingContext) {
+    return slot.availableCapacity >= booking.numberOfPeople &&
+      (!specificTherapistId || !!slot.availableTherapistIds?.includes(specificTherapistId));
+  }
+
+  function isFutureTime(time: string, date: string) {
+    const today = localDateStr();
+    return date > today || (date === today && timeToMin(time) >
+      new Date().getHours() * 60 + new Date().getMinutes());
+  }
+
+  async function refreshAlternatives(knownSlots?: TimeSlot[]) {
+    if (!context) return;
+    const requestId = ++recoveryRequest.current;
+    setRecoveryState('loading');
+    try {
+      const slots = knownSlots || responseData<TimeSlot>(await api.shops.getAvailableSlots(context.shopId, slotQuery(context)));
+      if (requestId !== recoveryRequest.current) return;
+      const choices = slots.filter(slot => slot.startTime !== bookingTime && matchesChoice(slot, context) &&
+        isFutureTime(slot.startTime, context.bookingDate));
+      choices.sort((a, b) => Math.abs(timeToMin(a.startTime) - timeToMin(bookingTime)) -
+        Math.abs(timeToMin(b.startTime) - timeToMin(bookingTime)) || a.startTime.localeCompare(b.startTime));
+      setAlternatives(choices.slice(0, 8));
+      setRecoveryState(choices.length ? 'ready' : 'empty');
+    } catch {
+      if (requestId !== recoveryRequest.current) return;
+      setAlternatives([]);
+      setRecoveryState('error');
+    }
+  }
 
   function choose(courseId: number, option: CourseDuration) {
     setSelected(current => {
@@ -101,19 +161,15 @@ export default function BookingForm({ context, onConfirmed }: {
     submittingRef.current = true;
     setSubmitting(true);
     setError('');
+    let stage: 'precheck' | 'create' = 'precheck';
     try {
-      const slotResult = await api.shops.getAvailableSlots(context.shopId, {
-        date: context.bookingDate,
-        duration: context.duration,
-        numberOfPeople: context.numberOfPeople,
-        ...(specificTherapistId ? { show_therapists: true } : {}),
-      });
+      const slotResult = await api.shops.getAvailableSlots(context.shopId, slotQuery(context));
       const slots = responseData<TimeSlot>(slotResult);
-      const available = slots.some(slot => slot.startTime === context.startTime &&
-        slot.availableCapacity >= context.numberOfPeople &&
-        (!specificTherapistId || slot.availableTherapistIds?.includes(specificTherapistId)));
+      const available = isFutureTime(bookingTime, context.bookingDate) &&
+        slots.some(slot => slot.startTime === bookingTime && matchesChoice(slot, context));
       if (!available) {
-        setError('This appointment time is no longer available. Please choose another time from the schedule.');
+        setError('This appointment time is no longer available. Choose another time below.');
+        await refreshAlternatives(slots);
         return;
       }
 
@@ -121,11 +177,12 @@ export default function BookingForm({ context, onConfirmed }: {
         chosenMain.map(item => ({ personIndex: index + 1, courseId: item.course.courseId }))).flat();
       const addOns = Array.from({ length: context.numberOfPeople }, (_, index) =>
         chosenAddons.map(item => ({ personIndex: index + 1, courseId: item.course.courseId }))).flat();
+      stage = 'create';
       const result = await api.bookings.create({
         phoneNumber: phone.trim(),
         shopId: context.shopId,
         bookingDate: context.bookingDate,
-        startTime: context.startTime,
+        startTime: bookingTime,
         duration: context.duration,
         numberOfPeople: context.numberOfPeople,
         courseId: chosenMain[0].course.courseId,
@@ -136,14 +193,29 @@ export default function BookingForm({ context, onConfirmed }: {
         ...(specificTherapistId ? {
           therapistPreferenceType: 'specific',
           therapistPreferenceValue: String(specificTherapistId),
+        } : therapistGender ? {
+          therapistPreferenceType: 'gender',
+          therapistPreferenceValue: therapistGender,
         } : {}),
       }) as { data?: { bookingCode?: string; therapistName?: string }; bookingCode?: string; therapistName?: string };
       const data = result.data || result;
       setConfirmation({ code: data.bookingCode || '', therapist: data.therapistName });
-      onConfirmed?.();
+      onConfirmed?.(bookingTime);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Booking failed. Please try again.';
-      setError(message);
+      const code = (cause as { code?: string } | null)?.code;
+      if (stage === 'precheck') {
+        setError(`Could not check available times: ${message}. Try again.`);
+        setRecoveryState('error');
+      } else if (code === 'SLOT_UNAVAILABLE' || code === 'INSUFFICIENT_THERAPISTS' || code === 'SHOP_CLOSED') {
+        setError('This appointment time is no longer available. Choose another time below.');
+        await refreshAlternatives();
+      } else if (code === 'BOOKING_CONFLICT') {
+        setError('Booking confirmation was busy. Refresh available times or try again.');
+        await refreshAlternatives();
+      } else {
+        setError(message);
+      }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -177,10 +249,27 @@ export default function BookingForm({ context, onConfirmed }: {
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
           <div><dt className="text-ink-soft">Shop</dt><dd className="mt-1 font-semibold text-basalt">{shop?.shopName || 'Unavailable'}</dd></div>
           <div><dt className="text-ink-soft">Date</dt><dd className="mt-1 font-semibold text-basalt">{dateLabel}</dd></div>
-          <div><dt className="text-ink-soft">Appointment time</dt><dd className="mt-1 font-semibold text-basalt">{context?.startTime || 'Unavailable'}</dd></div>
+          <div><dt className="text-ink-soft">Appointment time</dt><dd className="mt-1 font-semibold text-basalt">{bookingTime || 'Unavailable'}</dd></div>
           <div><dt className="text-ink-soft">Reserved duration</dt><dd className="mt-1 font-semibold text-basalt">{contextValid ? `${context.duration} min` : 'Unavailable'}</dd></div>
           <div><dt className="text-ink-soft">Guests</dt><dd className="mt-1 font-semibold text-basalt">{contextValid ? context.numberOfPeople : 'Unavailable'}</dd></div>
+          {context?.numberOfPeople === 1 && <div><dt className="text-ink-soft">Therapist preference</dt><dd className="mt-1 font-semibold text-basalt">
+            {specificTherapistId ? `Selected therapist #${specificTherapistId}` : therapistGender ? `${therapistGender} therapist` : 'Any therapist'}
+          </dd></div>}
         </dl>
+        {recoveryState !== 'none' && <div className="mt-5 rounded-xl border border-line bg-mist p-4" aria-live="polite">
+          <h3 className="font-semibold text-basalt">Choose another time</h3>
+          <p className="mt-1 text-sm text-ink-soft">Your shop, date, courses, guests, and contact details are saved on this page.</p>
+          {recoveryState === 'loading' && <p className="mt-3 text-sm">Refreshing available times...</p>}
+          {recoveryState === 'error' && <p role="alert" className="mt-3 text-sm text-red-700">Could not refresh available times. Try again.</p>}
+          {recoveryState === 'empty' && <p className="mt-3 text-sm">No other matching times are available on this date.</p>}
+          {recoveryState === 'ready' && <div className="mt-3 flex flex-wrap gap-2">{alternatives.map(slot =>
+            <button key={slot.startTime} type="button" onClick={() => { setBookingTime(slot.startTime); setRecoveryState('none'); setError(''); }}
+              className="rounded-lg border border-celadon bg-white px-3 py-2 text-sm font-semibold text-basalt hover:bg-celadon-soft">
+              {slot.startTime}–{slot.endTime}
+            </button>)}</div>}
+          <button type="button" onClick={() => void refreshAlternatives()} disabled={recoveryState === 'loading'}
+            className="mt-4 text-sm font-semibold text-celadon-deep underline disabled:opacity-50">Refresh available times</button>
+        </div>}
       </section>
 
       <section aria-labelledby="select-courses" className="rounded-2xl border border-line bg-linen p-5 sm:p-6">
@@ -250,6 +339,7 @@ export default function BookingForm({ context, onConfirmed }: {
           </dl>
           {!contextValid && <p role="alert" className="mt-4 text-sm text-red-700">Booking details are incomplete. Please select a slot again.</p>}
           {!loading && contextValid && !shop?.shopName && !loadError && <p role="alert" className="mt-4 text-sm text-red-700">Shop information is unavailable.</p>}
+          {!loading && shop?.status === 'Closed' && <p role="alert" className="mt-4 text-sm text-red-700">This shop is closed. Choose another shop.</p>}
           {!phoneValid && <p className="mt-4 text-sm text-red-700">Enter a valid phone number to confirm.</p>}
           {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           <button type="submit" disabled={!ready || submitting}

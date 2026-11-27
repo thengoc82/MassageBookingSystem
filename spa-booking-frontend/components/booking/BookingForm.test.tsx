@@ -111,6 +111,94 @@ test('does not submit when the selected slot is gone', async () => {
   expect(api.bookings.create).not.toHaveBeenCalled();
 });
 
+test('offers another time after precheck loss without clearing booking details', async () => {
+  (api.shops.getAvailableSlots as jest.Mock)
+    .mockResolvedValueOnce({ data: [{ startTime: '10:30', endTime: '11:30', availableCapacity: 2 }] })
+    .mockResolvedValueOnce({ data: [{ startTime: '10:30', endTime: '11:30', availableCapacity: 2 }] });
+  render(<BookingForm context={context} />);
+  await screen.findByText('Shinjuku Store');
+  fillBooking();
+  fireEvent.change(screen.getByLabelText(/Special Requests/), { target: { value: 'Quiet room' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  expect(await screen.findByRole('button', { name: '10:30–11:30' })).toBeInTheDocument();
+  expect(api.bookings.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '10:30–11:30' }));
+  expect(screen.getByLabelText(/Phone Number/)).toHaveValue('0901234567');
+  expect(screen.getByLabelText(/Special Requests/)).toHaveValue('Quiet room');
+  expect(screen.getByRole('button', { name: 'Full Body Massage, 30 minutes, 3,000 VND' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  await waitFor(() => expect(api.bookings.create).toHaveBeenCalledWith(expect.objectContaining({
+    startTime: '10:30', numberOfPeople: 2, notes: 'Quiet room',
+  })));
+});
+
+test('recovers from two consecutive POST slot losses with a specific therapist', async () => {
+  const slot = (startTime: string, ids: number[]) => ({ startTime, endTime: '11:00', availableCapacity: ids.length, availableTherapistIds: ids });
+  (api.shops.getAvailableSlots as jest.Mock)
+    .mockResolvedValueOnce({ data: [slot('10:00', [9]), slot('10:30', [9])] })
+    .mockResolvedValueOnce({ data: [slot('10:30', [9])] })
+    .mockResolvedValueOnce({ data: [slot('10:30', [9])] })
+    .mockResolvedValueOnce({ data: [slot('11:30', [9])] })
+    .mockResolvedValueOnce({ data: [slot('11:30', [9])] });
+  (api.bookings.create as jest.Mock)
+    .mockRejectedValueOnce(Object.assign(new Error('Taken'), { code: 'SLOT_UNAVAILABLE' }))
+    .mockRejectedValueOnce(Object.assign(new Error('Taken again'), { code: 'SLOT_UNAVAILABLE' }));
+  render(<BookingForm context={{ ...context, numberOfPeople: 1, therapistId: 9 }} />);
+  await screen.findByText('Shinjuku Store');
+  fillBooking();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  fireEvent.click(await screen.findByRole('button', { name: '10:30–11:00' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  fireEvent.click(await screen.findByRole('button', { name: '11:30–11:00' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  expect(await screen.findByText('Booking confirmed')).toBeInTheDocument();
+  expect(api.bookings.create).toHaveBeenCalledTimes(3);
+  expect((api.bookings.create as jest.Mock).mock.calls.map(call => call[0].startTime)).toEqual(['10:00', '10:30', '11:30']);
+  expect((api.bookings.create as jest.Mock).mock.calls.every(call => call[0].therapistPreferenceValue === '9')).toBe(true);
+});
+
+test('submits a gender preference and filters the precheck', async () => {
+  (api.shops.getAvailableSlots as jest.Mock).mockResolvedValue({ data: [{ startTime: '10:00', endTime: '11:00', availableCapacity: 1 }] });
+  render(<BookingForm context={{ ...context, numberOfPeople: 1, therapistGender: 'Female' }} />);
+  await screen.findByText('Shinjuku Store');
+  fillBooking();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  await waitFor(() => expect(api.bookings.create).toHaveBeenCalledWith(expect.objectContaining({
+    therapistPreferenceType: 'gender', therapistPreferenceValue: 'Female',
+  })));
+  expect(api.shops.getAvailableSlots).toHaveBeenCalledWith(7, expect.objectContaining({ gender: 'Female' }));
+});
+
+test('explains an availability API error and retries without clearing the form', async () => {
+  (api.shops.getAvailableSlots as jest.Mock)
+    .mockRejectedValueOnce(new Error('Offline'))
+    .mockResolvedValueOnce({ data: [{ startTime: '10:30', endTime: '11:30', availableCapacity: 2 }] });
+  render(<BookingForm context={context} />);
+  await screen.findByText('Shinjuku Store');
+  fillBooking();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  expect(await screen.findByText(/Could not check available times: Offline/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh available times' }));
+  expect(await screen.findByRole('button', { name: '10:30–11:30' })).toBeInTheDocument();
+  expect(screen.getByLabelText(/Phone Number/)).toHaveValue('0901234567');
+  expect(api.bookings.create).not.toHaveBeenCalled();
+});
+
+test('refreshes choices after a busy booking confirmation', async () => {
+  (api.shops.getAvailableSlots as jest.Mock)
+    .mockResolvedValueOnce({ data: [{ startTime: '10:00', endTime: '11:00', availableCapacity: 2 }] })
+    .mockResolvedValueOnce({ data: [{ startTime: '10:15', endTime: '11:15', availableCapacity: 2 }] });
+  (api.bookings.create as jest.Mock).mockRejectedValueOnce(
+    Object.assign(new Error('Database busy'), { code: 'BOOKING_CONFLICT' }));
+  render(<BookingForm context={context} />);
+  await screen.findByText('Shinjuku Store');
+  fillBooking();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Booking' }));
+  expect(await screen.findByText(/Booking confirmation was busy/)).toBeInTheDocument();
+  expect(await screen.findByRole('button', { name: '10:15–11:15' })).toBeInTheDocument();
+  expect(screen.getByLabelText(/Phone Number/)).toHaveValue('0901234567');
+});
+
 test('shows a booking API error and lets the customer retry', async () => {
   (api.bookings.create as jest.Mock).mockRejectedValueOnce(new Error('Service temporarily unavailable'));
   render(<BookingForm context={context} />);

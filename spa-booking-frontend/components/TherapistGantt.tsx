@@ -21,6 +21,7 @@ interface Props {
   numberOfPeople: number;
   startTime?: string;
   gender?: string;
+  selectionMode?: 'capacity' | 'therapist';
   onSelectSlot?: (startTime: string, therapistId: number) => void;
   showDetails?: boolean;
 }
@@ -93,12 +94,13 @@ function buildBookingDetailsMap(
   return map;
 }
 
-export default function TherapistGantt({ shopId, date, duration, numberOfPeople, startTime, gender, onSelectSlot, showDetails }: Props) {
+export default function TherapistGantt({ shopId, date, duration, numberOfPeople, startTime, gender, selectionMode, onSelectSlot, showDetails }: Props) {
   const [therapists, setTherapists] = useState<TherapistInfo[]>([]);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [bookingDetails, setBookingDetails] = useState<Record<number, BookingDetail[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [nowMin, setNowMin] = useState<number>(() => {
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
@@ -167,7 +169,7 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
       });
 
     return () => { cancelled = true; };
-  }, [shopId, date, duration, numberOfPeople, startTime, gender, showDetails]);
+  }, [shopId, date, duration, numberOfPeople, startTime, gender, showDetails, reloadKey]);
 
   const isToday = date === localDateStr();
   const firstMin = slots.length ? timeToMin(slots[0].startTime) : 0;
@@ -233,11 +235,16 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
   }
 
   if (error) {
-    return <div role="alert" className="py-8 text-center text-red-700">{error}</div>;
+    return <div className="py-8 text-center"><p role="alert" className="text-red-700">Could not load availability: {error}</p>
+      <button type="button" onClick={() => setReloadKey(value => value + 1)} className="mt-3 rounded border border-line px-3 py-2 text-sm">Try again</button></div>;
+  }
+
+  if (!slots.length) {
+    return <div className="py-8 text-center text-ink-soft">No time slots are available for this shop, date, and duration.</div>;
   }
 
   if (!therapists.length) {
-    return <div className="py-8 text-center text-ink-soft">No therapists found for this shop.</div>;
+    return <div className="py-8 text-center text-ink-soft">No therapists match this selection.</div>;
   }
 
   const rowH = showDetails ? 64 : 40;
@@ -250,7 +257,13 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
     onSelectSlot?.(startTime, therapistId);
   };
 
-  const capacityMode = numberOfPeople > 1;
+  const capacityMode = selectionMode ? selectionMode === 'capacity' : numberOfPeople > 1;
+  const timeHasPassed = (start: string) => date < localDateStr() ||
+    (isToday && timeToMin(start) <= nowMin);
+  if (!showDetails && !slots.some(slot => !timeHasPassed(slot.startTime) &&
+    (capacityMode ? slot.availableCapacity >= numberOfPeople : !!slot.availableTherapistIds?.length))) {
+    return <div className="py-8 text-center text-ink-soft">No available times match this selection. Choose another date or preference.</div>;
+  }
 
   const nowLine = showNow ? (
     <div
@@ -314,7 +327,7 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
           {capacityMode ? (
             <div className="flex" style={{ height: rowH }}>
               {slots.map(slot => {
-                const enough = slot.availableCapacity >= numberOfPeople;
+                const enough = slot.availableCapacity >= numberOfPeople && !timeHasPassed(slot.startTime);
                 return (
                   <div key={slot.startTime} className="shrink-0" style={{ width: CELL_W }}>
                     <button
@@ -363,7 +376,7 @@ export default function TherapistGantt({ shopId, date, duration, numberOfPeople,
                         </div>
                       );
                     }
-                    const free = isAvailable(t.therapistId, seg.slot);
+                    const free = isAvailable(t.therapistId, seg.slot) && !timeHasPassed(seg.slot.startTime);
                     return (
                       <div key={`a-${seg.slot.startTime}`} className="shrink-0" style={{ width: CELL_W }}>
                         <button

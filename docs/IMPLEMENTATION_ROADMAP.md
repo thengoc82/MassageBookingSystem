@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Updated: 2026-11-26
+Updated: 2026-11-27
 
 This roadmap preserves the order, dependencies, risks, and verification criteria of the 12-task implementation review. Status and scope have been checked against the current source and project documents. It is a plan for the remaining work, not a claim that unrun scenarios have passed. No tests were run while preparing this document.
 
@@ -94,7 +94,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** Public courses now expose only active options accepted by booking creation at open shops, with an explicit `main`/`addon` filter. `/shops` shows the catalog and links to the selected shop's slot schedule. The dashboard offers catalog-backed durations; BookingForm selects main courses and add-ons, computes per-guest and group totals, and submits each selected option and per-guest course row. The chatbot retrieves the Flask catalog, separates main courses from add-ons, and carries selected options through confirmation. See [Task 7 record](progress/task-07.md). No database migration was needed. Service descriptions are absent from the source catalog and were not invented.
 
-### 8. Complete customer slot choices and recovery — planned
+### 8. Complete customer slot choices and recovery — completed
 
 **Depends on:** Tasks 2 and 7, so displayed choices match create-time capacity and selected course duration.
 
@@ -103,6 +103,8 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** Suggested slots are also snapshots and can disappear before submission. Keep the final server-side recheck and submit only the customer's final choice.
 
 **Verify:** Specific, gender, and group paths submit the intended preference; a lost slot offers selectable alternatives; a second loss is handled cleanly; dates remain correct near local midnight.
+
+**Implementation:** The slot service now filters gender eligibility, validates queries, keeps `startTime` on the shop's 15-minute grid, and excludes closed-shop and pre-opening choices. The dashboard offers any, gender, and named-therapist choices for one guest, retains group capacity choices, uses local date formatting, and explains empty/error results. BookingForm offers nearby matching times after precheck or POST loss and preserves the other booking fields through repeated attempts. Creation remains the final availability decision. See [Task 8 record](progress/task-08.md). No new endpoint or migration was needed.
 
 ### 9. Add customer booking edits — planned
 

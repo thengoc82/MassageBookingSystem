@@ -154,18 +154,19 @@ Booking access code verification issues a short-lived token scoped to the normal
 
 ## Booking Flow (Optimistic Availability)
 
-1. Customer selects a shop, date, guests, and reserved duration.
-2. System returns available slots (capacity = active therapists on shift − overlapping bookings).
+1. Customer selects a shop, date, guests, reserved duration, and (for one guest) any therapist, a therapist gender, or a specific therapist.
+2. System returns available slots (capacity = active therapists on shift − overlapping bookings). A gender choice counts only eligible therapists of that gender; group choices require one distinct therapist per guest.
    With `show_therapists=true` it also returns the therapist list + per-slot `availableTherapistIds`.
-3. Customer picks a time slot (optionally a specific therapist, e.g. via the dashboard Gantt)
+3. Customer picks a valid time slot (optionally a specific therapist, e.g. via the dashboard Gantt).
 4. Customer selects courses whose combined duration equals the reserved duration, then enters a phone number and optional special requests. A therapist selected on the schedule stays in booking context.
 5. Customer confirms
 6. System immediately calls `POST /api/bookings` — **no reservation hold**
 7. If successful: booking code returned
 8. If slot is gone (therapist taken by another booking during the flow):
    - System refreshes availability
-   - Suggests nearest available slots
-   - Customer chooses again
+   - Suggests nearby slots that satisfy the same guest count and therapist preference
+   - Customer chooses again on the booking form without losing courses, contact details, or notes
+   - The new choice is checked again on submission; a second loss follows the same recovery path
 
 Availability is **optimistic** — shown as it was at query time. Creation rechecks therapist availability inside a database transaction. SQLite creation acquires a write transaction before reading availability; see [ADR 0003](adr/0003-atomic-therapist-assignment.md).
 

@@ -78,6 +78,9 @@ def create_app(config_name=None):
         )) or (
             request.path.startswith('/api/admin/shops/')
             and request.path.endswith('/available-slots')
+        ) or (
+            request.path.startswith('/api/shops/')
+            and request.path.endswith('/available-slots')
         ):
             response.headers['Cache-Control'] = 'no-store'
         return response

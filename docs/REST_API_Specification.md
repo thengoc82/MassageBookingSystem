@@ -103,17 +103,17 @@ Retrieve active courses with bookable duration and price options at an open shop
 
 ### GET /api/shops/{shop_id}/available-slots
 
-Find available time slots for a booking. For each 15-minute start step, capacity is the number of distinct active therapists whose shifts cover the full requested duration and who have no overlapping `Booked` or `CheckedIn` assignment. Legacy `Booking.therapist_id` and per-guest assignment rows both contribute to occupancy without double-counting a therapist.
+Find available time slots for a booking at an open shop. For each 15-minute start step, capacity is the number of distinct active therapists whose shifts cover the full requested duration and who have no overlapping `Booked` or `CheckedIn` assignment. Legacy `Booking.therapist_id` and per-guest assignment rows both contribute to occupancy without double-counting a therapist. A closed shop returns an empty slot list.
 
 **Query Parameters:**
 | Name           | Type   | Required | Description                                           |
 | -------------- | ------ | -------- | ----------------------------------------------------- |
 | date           | string | Yes      | YYYY-MM-DD, not in the past                           |
-| startTime      | string | No       | HH:MM, filter from specific time                      |
+| startTime      | string | No       | HH:MM, return grid steps at or after this time (never before opening) |
 | duration       | int    | Yes      | Total minutes (main course + add-ons)                 |
 | numberOfPeople | int    | Yes      | Number of guests                                      |
 | courseIds      | string | No       | Comma-separated course IDs (currently unused for skill match) |
-| gender         | string | No       | Preferred therapist gender: `Male` or `Female`        |
+| gender         | string | No       | `Male` or `Female`, for one guest only; capacity and therapist IDs include only eligible therapists of that gender |
 | show_therapists| string | No       | `"true"` → also return therapist-level availability  |
 
 **Default response (200):**
@@ -141,18 +141,15 @@ carries `availableTherapistIds` (therapists free at that exact time):
   ]
 }
 ```
-When `show_therapists=true`, **all** shop slots are returned (not just those meeting capacity) so a
-client grid stays stable after a booking — a booked slot simply drops the therapist id from the list.
+When `show_therapists=true`, **all** shop grid steps are returned (not just those meeting capacity) so a
+client grid stays stable after a booking — a booked slot simply drops the therapist id from the list. With `gender`, the top-level therapist list and per-slot IDs are filtered to that gender. Slot responses use `Cache-Control: no-store`; they remain provisional until booking creation succeeds.
 The public response does not include booking IDs, codes, course names, or other booking details. Admins can request those details through `GET /api/admin/shops/{shop_id}/available-slots` with the same query parameters and an admin JWT; its response also includes `therapistBookingDetails`.
 
 **Errors:**
 | HTTP | Code                 | Condition          |
 | ---- | -------------------- | ------------------ |
-| 400  | DATE_REQUIRED        | Missing date       |
-| 400  | DURATION_REQUIRED    | Missing duration   |
-| 400  | NUMBER_OF_PEOPLE_REQUIRED | Missing numberOfPeople |
-| 422  | INVALID_BOOKING_DATE | Date in the past   |
-| 404  | SHOP_NOT_FOUND       | Shop not found     |
+| 400  | VALIDATION_ERROR     | Missing or malformed date, time, duration, guest count, or gender; past date; gender with a group |
+| 404  | RESOURCE_NOT_FOUND   | Shop not found     |
 
 ---
 
