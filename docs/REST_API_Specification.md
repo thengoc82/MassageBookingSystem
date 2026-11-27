@@ -315,23 +315,24 @@ Retrieve bookings list with filters.
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "bookingId": 120,
-      "bookingCode": "BK20260715001",
-      "shopId": 1,
-      "shopName": "ABC Spa",
-      "phoneNumber": "0123456789",
-      "bookingDate": "2026-07-15",
-      "startTime": "10:00",
-      "numberOfPeople": 2,
-      "status": "Booked",
-      "services": [{ "personIndex": 1, "courseId": 1, "courseName": "Thai Massage" }],
-      "therapistId": 2,
-      "therapistName": "Anna"
-    }
-  ],
-  "pagination": { "page": 1, "size": 20, "total": 30, "totalPages": 2 }
+  "data": {
+    "data": [
+      {
+        "bookingId": 120,
+        "bookingCode": "BK20260715001",
+        "shopId": 1,
+        "shopName": "ABC Spa",
+        "phoneNumber": "0123456789",
+        "bookingDate": "2026-07-15",
+        "startTime": "10:00",
+        "numberOfPeople": 2,
+        "status": "Booked",
+        "therapistId": 2,
+        "therapistName": "Anna"
+      }
+    ],
+    "pagination": { "page": 1, "size": 20, "total": 30, "totalPages": 2 }
+  }
 }
 ```
 
@@ -343,9 +344,9 @@ Retrieve full booking detail.
 
 **Access:** Verified customer whose phone matches this booking, admin JWT, or therapist JWT assigned to this booking. An unrelated authenticated caller receives 404.
 
-**Response (200):** Same as list item + `addOns` array + `customerId` + `memberRank`.
+**Response (200):** Same booking fields as a list item, plus `services`, `addOns`, and saved `preferences` when present. `preferences.selectedCourses` contains chosen duration and price options when they were saved. The interval duration can be derived from `startTime` and `endTime`. Customer rank and ID are not returned.
 
-**Errors:** 404 BOOKING_NOT_FOUND
+**Errors:** 404 `RESOURCE_NOT_FOUND` for a missing booking or a booking outside the caller's scope.
 
 ---
 
@@ -372,6 +373,7 @@ Update a `Booked` booking. The request is a nonempty JSON object containing only
 - The effective course selection follows the same active-course, per-guest, catalog-option, and duration rules as creation.
 - Every modification rechecks shift coverage and overlapping `Booked` / `CheckedIn` assignments in a transaction. The booking being edited does not conflict with itself. Existing eligible assignments are retained; replacements follow the creation workload ranking, and groups receive distinct therapists.
 - A rejected modification leaves the original booking, course rows, therapist rows, and preferences unchanged.
+- Public slot results include the booking being edited as occupied; the PATCH transaction excludes it. Clients may show public slots as guidance but must use the PATCH result as the final availability decision.
 
 **Response (200):**
 ```json
@@ -786,6 +788,7 @@ Booked ──► CheckedIn ──► CheckedOut
 
 **Status Management (Admin):**
 - `PATCH /api/bookings/{booking_id}/cancel` — Verified booking phone or admin JWT; only `Booked`.
+- A cancellation after check-in or an earlier cancellation returns HTTP 422 `INVALID_CANCEL_STATUS` and does not change the booking.
 - `PATCH /api/bookings/{booking_id}/checkin` — Admin JWT only; only `Booked`.
 - `PATCH /api/bookings/{booking_id}/checkout` — Admin JWT only; only `CheckedIn`.
 - Assigned therapists use `/api/therapists/bookings/{booking_id}/checkin` and `/checkout`. Admins can also use `/api/admin/bookings/{booking_id}/cancel`, `/checkin`, and `/checkout`.

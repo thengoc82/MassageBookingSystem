@@ -2,7 +2,8 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, clearCustomerBookingAccess } from '@/lib/api';
+import BookingEditForm from '@/components/booking/BookingEditForm';
 import type { Booking, BookingServiceDetail } from '@/types';
 
 function formatTime(t: string) {
@@ -22,12 +23,12 @@ function getStatusColor(status: string) {
   }
 }
 
-function DetailRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+function DetailRow({ label, value }: { label: string; value: string | string[] | number | null | undefined }) {
   if (!value) return null;
   return (
     <div className="flex gap-4 py-1.5">
       <span className="w-36 shrink-0 text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-900">{value}</span>
+      <span className="text-sm font-medium text-gray-900">{Array.isArray(value) ? value.join(', ') : value}</span>
     </div>
   );
 }
@@ -42,16 +43,71 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [notice, setNotice] = useState('');
+  const customerView = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('customer') === '1';
+
+  async function refresh(customer = customerView) {
+    try {
+      const response = await api.bookings.getById(Number(id), customer);
+      setBooking(response.data || response);
+      setError(null);
+    } catch (cause) {
+      if ((cause as { status?: number })?.status === 401 && customer) {
+        clearCustomerBookingAccess();
+        setError('Your booking access expired. Verify your phone again to continue.');
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Failed to load booking');
+      }
+    }
+  }
 
   useEffect(() => {
-    const customerView = new URLSearchParams(window.location.search).get('customer') === '1';
-    api.bookings.getById(Number(id), customerView).then((res: any) => {
-      const data = res?.data || res;
-      setBooking(data);
-    }).catch((err: any) => {
-      setError(err.message || 'Failed to load booking');
-    }).finally(() => setLoading(false));
+    const search = new URLSearchParams(window.location.search);
+    const customerView = search.get('customer') === '1';
+    let active = true;
+    api.bookings.getById(Number(id), customerView)
+      .then(response => {
+        if (!active) return;
+        setBooking(response.data || response);
+        setEditing(customerView && search.get('edit') === '1');
+      })
+      .catch(cause => {
+        if (!active) return;
+        if ((cause as { status?: number })?.status === 401 && customerView) {
+          clearCustomerBookingAccess();
+          setError('Your booking access expired. Verify your phone again to continue.');
+        } else setError(cause instanceof Error ? cause.message : 'Failed to load booking');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [id]);
+
+  async function cancelBooking() {
+    if (!booking || !confirm('Are you sure you want to cancel this booking?')) return;
+    setCancelling(true);
+    setNotice('');
+    try {
+      await api.bookings.cancel(booking.bookingId);
+      setEditing(false);
+      setNotice('Booking cancelled.');
+      await refresh(true);
+    } catch (cause) {
+      const response = cause as { status?: number; code?: string; message?: string };
+      if (response.status === 401) {
+        clearCustomerBookingAccess();
+        setError('Your booking access expired. Verify your phone again to continue.');
+      } else if (response.code === 'INVALID_CANCEL_STATUS') {
+        setNotice('This booking can no longer be cancelled. Its current status has been refreshed.');
+        await refresh(true);
+      } else {
+        setNotice(response.message || 'Could not cancel this booking. Please try again.');
+      }
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -66,13 +122,13 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
       <div className="min-h-screen bg-white py-8">
         <div className="container mx-auto px-4 max-w-2xl">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error || 'Booking not found'}</div>
-          <button onClick={() => router.back()} className="mt-4 text-sm text-celadon-deep hover:underline">Go back</button>
+          <button onClick={() => customerView ? router.push('/my-bookings') : router.back()} className="mt-4 text-sm text-celadon-deep hover:underline">{customerView ? 'Verify phone or return to My Bookings' : 'Go back'}</button>
         </div>
       </div>
     );
   }
 
-  const prefs = booking.preferences as Record<string, any> | undefined;
+  const prefs = booking.preferences as Record<string, string | string[] | number | undefined> | undefined;
   const services = booking.services as BookingServiceDetail[] | undefined;
   const addons = booking.addOns as BookingServiceDetail[] | undefined;
 
@@ -80,9 +136,11 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
     <div className="min-h-screen bg-[#F5F7FA] py-8">
       <div className="container mx-auto px-4 max-w-2xl space-y-4">
 
-        <button onClick={() => router.back()} className="text-sm text-celadon-deep hover:underline flex items-center gap-1">
+        <button onClick={() => customerView ? router.push('/my-bookings') : router.back()} className="text-sm text-celadon-deep hover:underline flex items-center gap-1">
           &larr; Back
         </button>
+
+        {notice && <p role="status" className="rounded-lg bg-celadon-soft p-3 text-sm text-gray-900">{notice}</p>}
 
         {/* Header */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -95,7 +153,17 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
               {booking.status}
             </span>
           </div>
+          {customerView && booking.status === 'Booked' && <div className="flex gap-3 border-t border-gray-200 pt-4">
+            <button type="button" onClick={() => { setEditing(true); setNotice(''); }} className="rounded-lg bg-celadon px-4 py-2 text-sm font-semibold text-white">Edit booking</button>
+            <button type="button" onClick={() => void cancelBooking()} disabled={cancelling} className="rounded-lg border border-red-600 px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-50">{cancelling ? 'Cancelling...' : 'Cancel booking'}</button>
+          </div>}
         </div>
+
+        {customerView && editing && booking.status === 'Booked' && <BookingEditForm booking={booking}
+          onSaved={async () => { setEditing(false); setNotice('Booking updated.'); await refresh(true); }}
+          onStatusChanged={async () => { setEditing(false); setNotice('This booking can no longer be edited. Its current status has been refreshed.'); await refresh(true); }}
+          onAccessExpired={() => { clearCustomerBookingAccess(); setEditing(false); setError('Your booking access expired. Verify your phone again to continue.'); }}
+          onClose={() => setEditing(false)} />}
 
         {/* Date & Time */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -108,7 +176,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
               <span className="w-36 shrink-0 text-sm text-gray-500">Therapists</span>
               <div className="text-sm font-medium text-gray-900 space-y-0.5">
                 {booking.therapistAssignments
-                  .sort((a, b) => a.personIndex - b.personIndex)
+                  .slice().sort((a, b) => a.personIndex - b.personIndex)
                   .map(ta => (
                     <div key={ta.therapistId}>
                       Person {ta.personIndex}: {ta.therapistName}

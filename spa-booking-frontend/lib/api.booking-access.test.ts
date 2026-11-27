@@ -8,11 +8,12 @@ beforeEach(() => {
   global.fetch = jest.fn().mockResolvedValue(response);
 });
 
-test('customer lookup and cancellation send only the phone-scoped token', async () => {
+test('customer lookup, edit, and cancellation send only the phone-scoped token', async () => {
   localStorage.setItem('access_token', 'staff-token');
   saveCustomerBookingAccess('0901234567', 'customer-token');
 
   await api.bookings.getAll({ phone: '0901234567' });
+  await api.bookings.update(42, { startTime: '11:00' }, true);
   await api.bookings.cancel(42);
 
   expect(global.fetch).toHaveBeenNthCalledWith(1,
@@ -20,6 +21,10 @@ test('customer lookup and cancellation send only the phone-scoped token', async 
     { headers: { Authorization: 'Bearer customer-token' } },
   );
   expect(global.fetch).toHaveBeenNthCalledWith(2,
+    expect.stringContaining('/bookings/42'),
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer customer-token' }, body: JSON.stringify({ startTime: '11:00' }) },
+  );
+  expect(global.fetch).toHaveBeenNthCalledWith(3,
     expect.stringContaining('/bookings/42/cancel'),
     { method: 'PATCH', headers: { Authorization: 'Bearer customer-token' } },
   );

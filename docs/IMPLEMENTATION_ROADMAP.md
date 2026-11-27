@@ -106,7 +106,7 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 
 **Implementation:** The slot service now filters gender eligibility, validates queries, keeps `startTime` on the shop's 15-minute grid, and excludes closed-shop and pre-opening choices. The dashboard offers any, gender, and named-therapist choices for one guest, retains group capacity choices, uses local date formatting, and explains empty/error results. BookingForm offers nearby matching times after precheck or POST loss and preserves the other booking fields through repeated attempts. Creation remains the final availability decision. See [Task 8 record](progress/task-08.md). No new endpoint or migration was needed.
 
-### 9. Add customer booking edits — planned
+### 9. Add customer booking edits — completed
 
 **Depends on:** Task 3's safe PATCH behavior, Task 4's ownership rule, and Tasks 7–8's customer booking context.
 
@@ -115,6 +115,8 @@ Voice booking, payments, notifications, loyalty features, and Socket.IO UI updat
 **Risk:** Only `Booked` bookings may change. The UI must not assume that knowing a booking ID or phone number grants edit permission.
 
 **Verify:** An authorized customer edits an eligible booking and sees updated time and assignments; occupied slots and edits after check-in or cancellation are rejected without changing data.
+
+**Implementation:** The verified customer list links directly to an edit form on booking detail. The form starts from saved booking data, submits only supported PATCH fields, and uses the customer token even when a staff token exists in the browser. It can change date/time, valid course options and resulting duration, or a one-guest therapist preference. Cancellation is available from list and detail. Both actions refresh status and explain expired access, stale status, and availability rejection. See [Task 9 record](progress/task-09.md). The existing PATCH/cancel endpoints and backend transaction rules remain authoritative.
 
 ### 10. Align the chatbot booking contract — planned
 

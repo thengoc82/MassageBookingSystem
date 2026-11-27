@@ -197,7 +197,9 @@ Public service discovery lists active Courses at open Shops only when they have 
 
 ### Booking Modification
 - Only `Booked` status bookings can be modified.
-- Changing time triggers therapist availability re-check at the POS level.
+- The customer booking detail offers edits only after phone-code verification. Customers may change the date, start time, duration through a valid course selection, main courses, add-ons, and a one-guest therapist preference. Shop, guest count, phone, status, and saved notes are read-only in this flow.
+- Every PATCH rechecks shop hours, active course options, shifts, and therapist availability in the local booking transaction, excluding the booking being edited. The public slot list includes the existing booking as occupied, so it is guidance rather than a final edit decision. No external POS modification adapter exists.
+- Customer cancellation is available only while the booking is `Booked`. A concurrent check-in or cancellation can reject an edit or cancellation; the customer view refreshes the saved status.
 
 ### General Constraints
 - Booking code is unique system-wide, format `BK{YYYYMMDD}{4digits}`.

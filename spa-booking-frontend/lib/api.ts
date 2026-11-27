@@ -109,9 +109,9 @@ export const api = {
       headers: customer ? customerBookingHeaders() : bookingHeaders()
     }).then(handleResponse),
 
-    update: (id: number, data: any) => fetch(`${API_BASE_URL}/bookings/${id}`, {
+    update: (id: number, data: any, customer = false) => fetch(`${API_BASE_URL}/bookings/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...bookingHeaders() },
+      headers: { 'Content-Type': 'application/json', ...(customer ? customerBookingHeaders() : bookingHeaders()) },
       body: JSON.stringify(data)
     }).then(handleResponse),
 

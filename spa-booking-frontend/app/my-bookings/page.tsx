@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, clearCustomerBookingAccess, getCustomerBookingAccess, saveCustomerBookingAccess } from '@/lib/api';
 import type { Booking } from '@/types';
@@ -18,6 +18,8 @@ export default function MyBookingsPage() {
   const [codeSent, setCodeSent] = useState(false);
   const [codeDelivery, setCodeDelivery] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
 
   const handleAccess = async () => {
     if (!phoneNumber) return;
@@ -59,13 +61,14 @@ export default function MyBookingsPage() {
     }
   };
 
-  const handleSearch = async (targetPage = 1) => {
-    if (!phoneNumber || getCustomerBookingAccess()?.phone !== phoneNumber) return;
+  const handleSearch = async (targetPage = 1, lookupPhone = phoneNumber) => {
+    if (!lookupPhone || getCustomerBookingAccess()?.phone !== lookupPhone) return;
 
     try {
       setLoading(true);
       setPage(targetPage);
-      const response = await api.bookings.getAll({ phone: phoneNumber, page: targetPage, size: 10 });
+      setError('');
+      const response = await api.bookings.getAll({ phone: lookupPhone, page: targetPage, size: 10 });
 
       if (response.success) {
         const pagination = response.data.pagination;
@@ -75,24 +78,51 @@ export default function MyBookingsPage() {
         setSearched(true);
       }
     } catch (error: unknown) {
-      if ((error as { status?: number })?.status === 401) clearCustomerBookingAccess();
-      setError(error instanceof Error ? error.message : 'Failed to load bookings');
+      if ((error as { status?: number })?.status === 401) {
+        clearCustomerBookingAccess();
+        setBookings([]);
+        setSearched(false);
+        setError('Your booking access expired. Get another code to continue.');
+      } else setError(error instanceof Error ? error.message : 'Failed to load bookings');
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    const access = getCustomerBookingAccess();
+    if (access) {
+      void handleSearch(1, access.phone).then(() => setPhoneNumber(access.phone));
+    }
+    // Restore only the token already verified in this browser tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleCancel = async (bookingId: number) => {
     if (!confirm('Are you sure you want to cancel this booking?')) return;
 
+    setCancellingId(bookingId);
+    setNotice('');
+    setError('');
     try {
       const response = await api.bookings.cancel(bookingId);
       if (response.success) {
-        handleSearch(page);
+        setNotice('Booking cancelled.');
+        await handleSearch(page);
       }
-    } catch (error: unknown) {
-      if ((error as { status?: number })?.status === 401) clearCustomerBookingAccess();
-      setError(error instanceof Error ? error.message : 'Failed to cancel booking');
+    } catch (cause: unknown) {
+      const response = cause as { status?: number; code?: string; message?: string };
+      if (response.status === 401) {
+        clearCustomerBookingAccess();
+        setBookings([]);
+        setSearched(false);
+        setError('Your booking access expired. Get another code to continue.');
+      } else if (response.code === 'INVALID_CANCEL_STATUS') {
+        setNotice('This booking can no longer be cancelled. Its current status has been refreshed.');
+        await handleSearch(page);
+      } else setError(response.message || 'Failed to cancel booking');
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -122,7 +152,7 @@ export default function MyBookingsPage() {
             <input
               type="tel"
               value={phoneNumber}
-              onChange={(e) => { setPhoneNumber(e.target.value); setCodeSent(false); setCodeDelivery(null); setSearched(false); setBookings([]); setError(''); }}
+              onChange={(e) => { setPhoneNumber(e.target.value); setCodeSent(false); setCodeDelivery(null); setSearched(false); setBookings([]); setError(''); setNotice(''); }}
               placeholder="0123456789"
               className="flex-1 rounded-lg border-2 border-[#365F91] p-3 text-gray-900 placeholder:text-[#6B7C93]"
             />
@@ -141,6 +171,7 @@ export default function MyBookingsPage() {
             {codeDelivery === 'terminal' && <p className="mt-2 text-sm text-gray-600">For local development, find the code in the Flask API terminal.</p>}
           </div>}
           {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+          {notice && <p role="status" className="mt-3 text-sm text-celadon-deep">{notice}</p>}
         </div>
 
         {searched && bookings.length === 0 && (
@@ -215,12 +246,13 @@ export default function MyBookingsPage() {
               </div>
 
               {booking.status === 'Booked' && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleCancel(booking.bookingId); }}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
-                >
-                  Cancel Booking
-                </button>
+                <div className="flex gap-3">
+                  <button type="button" onClick={(e) => { e.stopPropagation(); router.push(`/bookings/${booking.bookingId}?customer=1&edit=1`); }} className="flex-1 rounded-lg bg-celadon py-2 font-semibold text-white hover:bg-celadon-deep">Edit booking</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancel(booking.bookingId); }} disabled={cancellingId === booking.bookingId}
+                    className="flex-1 rounded-lg bg-red-600 py-2 font-semibold text-white hover:bg-red-700 disabled:opacity-50">
+                    {cancellingId === booking.bookingId ? 'Cancelling...' : 'Cancel booking'}
+                  </button>
+                </div>
               )}
             </div>
           ))}

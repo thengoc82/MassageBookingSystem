@@ -205,6 +205,86 @@ def test_customer_scope_and_staff_transitions(client, sample_shop, sample_course
     assert client.get('/api/admin/bookings', headers=customer).status_code == 403
 
 
+def test_verified_customer_edit_and_cancel_preserve_booking_on_rejection(
+        client, sample_shop, sample_courses, sample_therapists, monkeypatch):
+    redis = FakeRedis()
+    delivered = []
+    monkeypatch.setattr(booking_access, '_redis', lambda: redis)
+    monkeypatch.setattr(booking_access, '_deliver_code', lambda phone, code: delivered.append(code) or 'fake')
+    booking_date = (datetime.utcnow().date() + timedelta(days=7)).isoformat()
+    created = client.post('/api/bookings', json={
+        'phoneNumber': '0901234567', 'shopId': sample_shop.id,
+        'bookingDate': booking_date, 'startTime': '10:00', 'duration': 60,
+        'numberOfPeople': 1, 'courseId': sample_courses[0].id,
+        'notes': 'Keep this request',
+    })
+    assert created.status_code == 201, created.get_json()
+    booking_id = created.get_json()['data']['bookingId']
+    occupied = client.post('/api/bookings', json={
+        'phoneNumber': '0901234568', 'shopId': sample_shop.id,
+        'bookingDate': booking_date, 'startTime': '11:00', 'duration': 60,
+        'numberOfPeople': 1, 'courseId': sample_courses[0].id,
+        'therapistPreferenceType': 'specific',
+        'therapistPreferenceValue': sample_therapists[1].id,
+    })
+    assert occupied.status_code == 201, occupied.get_json()
+
+    assert client.post('/api/booking-access/challenges', json={'phoneNumber': '+84901234567'}).status_code == 200
+    verified = client.post('/api/booking-access/verifications', json={
+        'phoneNumber': '0901234567', 'code': delivered[-1],
+    })
+    assert verified.status_code == 200
+    customer = _headers(verified.get_json()['data']['accessToken'])
+    stranger = _headers(_token('customer', phone='0901234568'))
+    detail_url = f'/api/bookings/{booking_id}'
+    original = client.get(detail_url, headers=customer).get_json()['data']
+    assert original['preferences']['notes'] == 'Keep this request'
+
+    denied = client.patch(detail_url, headers=customer, json={
+        'startTime': '11:00', 'therapistId': sample_therapists[1].id,
+    })
+    assert denied.status_code == 422
+    assert denied.get_json()['error']['code'] == 'SLOT_UNAVAILABLE'
+    assert client.get(detail_url, headers=customer).get_json()['data'] == original
+    assert client.patch(detail_url, headers=stranger, json={'startTime': '12:00'}).status_code == 404
+    assert client.patch(f'{detail_url}/cancel', headers=stranger).status_code == 404
+
+    changed = client.patch(detail_url, headers=customer, json={'startTime': '11:00'})
+    assert changed.status_code == 200, changed.get_json()
+    updated = client.get(detail_url, headers=customer).get_json()['data']
+    assert updated['startTime'] == '11:00'
+    assert updated['endTime'] == '12:00'
+    assert updated['services'] == original['services']
+    assert updated['preferences'] == original['preferences']
+    assert updated['therapistAssignments'] == original['therapistAssignments']
+
+    course_change = client.patch(detail_url, headers=customer, json={
+        'duration': 90,
+        'services': [
+            {'personIndex': 1, 'courseId': sample_courses[0].id},
+            {'personIndex': 1, 'courseId': sample_courses[1].id},
+        ],
+        'addOns': [],
+        'selectedCourses': [
+            {'courseId': sample_courses[0].id, 'duration': 60, 'price': 6000},
+            {'courseId': sample_courses[1].id, 'duration': 30, 'price': 3000},
+        ],
+    })
+    assert course_change.status_code == 200, course_change.get_json()
+    changed_detail = client.get(detail_url, headers=customer).get_json()['data']
+    assert changed_detail['endTime'] == '12:30'
+    assert [row['courseId'] for row in changed_detail['services']] == [sample_courses[0].id, sample_courses[1].id]
+    assert changed_detail['preferences']['notes'] == 'Keep this request'
+
+    cancelled = client.patch(f'{detail_url}/cancel', headers=customer)
+    assert cancelled.status_code == 200
+    assert client.get(detail_url, headers=customer).get_json()['data']['status'] == 'Cancelled'
+    assert client.patch(detail_url, headers=customer, json={'startTime': '12:00'}).get_json()['error']['code'] == 'INVALID_MODIFY_STATUS'
+    repeated = client.patch(f'{detail_url}/cancel', headers=customer)
+    assert repeated.status_code == 422
+    assert repeated.get_json()['error']['code'] == 'INVALID_CANCEL_STATUS'
+
+
 def test_public_availability_and_eligibility_do_not_expose_booking_details(client, sample_shop, sample_courses, sample_therapists):
     _create(client, sample_shop, sample_courses[0])
     params = {
